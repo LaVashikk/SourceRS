@@ -1,0 +1,34 @@
+"Configs"
+{
+	"Games"
+	{
+		"Portal 2"
+		{
+			"GameDir"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\portal2"
+			"Hammer"
+			{
+				"GameData0"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\halflife2.fgd"
+				"GameData1"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\portal.fgd"
+				"GameData2"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\portal2.fgd"
+				"GameData3"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\propper.fgd"
+				"TextureFormat"		"5"
+				"MapFormat"		"4"
+				"DefaultTextureScale"		"0.250000"
+				"DefaultLightmapScale"		"16"
+				"GameExe"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\portal2.exe"
+				"DefaultSolidEntity"		"func_detail"
+				"DefaultPointEntity"		"prop_static"
+				"BSP"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\vbsp.exe"
+				"Vis"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\vvis.exe"
+				"Light"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\vrad.exe"
+				"GameExeDir"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2"
+				"MapDir"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\sdk_content\maps"
+				"BSPDir"		"C:\Program Files (x86)\Steam\SteamApps\sourcemods\Portal Revolution\maps"
+				"PrefabDir"		"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\bin\Prefabs"
+				"CordonTexture"		"tools\toolsskybox"
+				"MaterialExcludeCount"		"0"
+			}
+		}
+	}
+	"SDKVersion"		"4"
+}

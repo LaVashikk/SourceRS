@@ -1,0 +1,19 @@
+[package]
+name = "source-kv"
+version = "0.1.0"
+edition = "2024"
+description = "A Serde serialization and deserialization library for Valve's Key-Value format."
+license = "MIT"
+authors = ["LaVashikk <contact@lavashik.dev>"]
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-kv"
+readme = "README.md"
+keywords = ["source-engine", "sdk", "gamedev"]
+categories = ["game-development"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+indexmap = { version = "2.2", features = ["serde"] }
+
+[dev-dependencies]
+serde_derive = "1.0"
