@@ -1,0 +1,18 @@
+[package]
+name = "source-fs"
+version = "0.1.0"
+edition = "2024"
+description = "A virtual filesystem implementation for Source Engine games, handling gameinfo.txt search paths, VPK archives, and cross-platform file resolution."
+license = "MIT"
+authors = ["LaVashikk <contact@lavashik.dev>"]
+repository = "https://github.com/LaVashikk/"
+readme = "README.md"
+keywords = ["source-engine", "filesystem", "vpk", "gamedev"]
+categories = ["game-development", "filesystem"]
+
+[dependencies]
+steamlocate = { version = "2.1.0", optional = true }
+
+[features]
+default = []
+steam = ["dep:steamlocate"]

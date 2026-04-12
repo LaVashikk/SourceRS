@@ -1,0 +1,23 @@
+"GameInfo"
+{
+	game 		"PORTAL 2"
+	title 		"PORTAL 2"
+	GameData	"portal2.fgd"
+	gamelogo 	1
+
+	SupportsDX8     0
+	SupportsXbox360 1
+
+	FileSystem
+	{
+		SteamAppId				620
+		ToolsAppId				211
+
+		SearchPaths
+		{
+			Game				|gameinfo_path|.
+			Game		    "simple_inside/other_folder"
+			Game		    "simple_inside/prelude"
+		}
+	}
+}
