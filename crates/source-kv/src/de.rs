@@ -141,7 +141,7 @@ impl<'de> Deserializer<'de> {
                     return Err(self.error("Expected '}', found EOF"));
                 }
                 _ => {
-                    let key = self.parse_string()?;
+                    let key = self.parse_string()?.to_lowercase();
                     let value = self.parse_value()?;
                     map.entry(key).or_insert_with(Vec::new).push(value);
                 }
