@@ -76,7 +76,7 @@ pub struct P2GameInfo;
 
 impl GameInfoProvider for P2GameInfo {
     fn get_search_paths<P: AsRef<Path>>(path: P) -> Option<Vec<(String, String)>> {
-        let mut paths = SimpleGameInfo::get_search_paths(&path)?;
+        let mut paths = vec![];
 
         // only for portal 2:
         let game_path_str = path.as_ref()
@@ -95,6 +95,9 @@ impl GameInfoProvider for P2GameInfo {
             // paths.push(("game".to_string(), dlc_path.to_string_lossy().into_owned()));
             paths.push(("game".to_string(), dlc_name));
         }
+
+        paths.reverse();
+        paths.extend(SimpleGameInfo::get_search_paths(&path)?);
 
         Some(paths)
     }
