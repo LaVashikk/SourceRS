@@ -2,13 +2,18 @@ use indexmap::IndexMap;
 use serde::de::{self, Visitor, DeserializeSeed, MapAccess, SeqAccess};
 use crate::error::{Error, Result};
 
+/// Represents a KeyValues value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// A simple string value.
     Str(String),
+    /// An object containing multiple KeyValues entries.
+    /// Uses `IndexMap` to preserve order and `Vec` to handle duplicate keys.
     Obj(IndexMap<String, Vec<Value>>),
 }
 
 impl Value {
+    /// Returns the string value if this is a `Value::Str`.
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) => Some(s),
@@ -17,6 +22,7 @@ impl Value {
     }
 }
 
+/// A parser for KeyValues (VDF) format.
 pub struct Deserializer<'de> {
     input: &'de str,
     cursor: usize,
@@ -25,6 +31,7 @@ pub struct Deserializer<'de> {
 }
 
 impl<'de> Deserializer<'de> {
+    /// Creates a new deserializer from a string.
     pub fn from_str(input: &'de str) -> Self {
         Deserializer {
             input,
@@ -96,7 +103,6 @@ impl<'de> Deserializer<'de> {
                 Err(self.error("Unexpected end of file while parsing quoted string"))
             }
             Some(c) if !c.is_whitespace() && c != '{' && c != '}' => {
-                 // let mut s = String::new();
                  let start = self.cursor;
 
                  while let Some(ch) = self.peek_char() {
@@ -113,6 +119,7 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    /// Parses a single KeyValues value.
     pub fn parse_value(&mut self) -> Result<Value> {
         self.skip_whitespace();
         match self.peek_char() {
@@ -128,6 +135,7 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    /// Parses the content of a KeyValues object.
     pub fn parse_map_content(&mut self) -> Result<IndexMap<String, Vec<Value>>> {
         let mut map = IndexMap::new();
         loop {
@@ -149,6 +157,7 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    /// Parses the root level of a KeyValues document.
     pub fn parse_root(&mut self) -> Result<Value> {
         let mut map = IndexMap::new();
         loop {
@@ -176,30 +185,42 @@ impl<'de> Deserializer<'de> {
     }
 }
 
+/// Deserializes an instance of type `T` from a KeyValues string.
 pub fn from_str<'a, T>(s: &'a str) -> Result<T>
 where
     T: de::DeserializeOwned,
 {
     let mut deserializer = Deserializer::from_str(s);
     let root_value = deserializer.parse_root()?;
-    let mut value_deserializer = ValueDeserializer { value: root_value };
-    T::deserialize(&mut value_deserializer)
+    from_value(root_value)
 }
 
-struct ValueDeserializer {
-    value: Value,
+/// Deserializes an instance of type `T` from a `Value`.
+///
+/// This is useful when you have already parsed a KeyValues structure into a `Value`
+/// and want to convert it into a typed Rust structure.
+pub fn from_value<T>(value: Value) -> Result<T>
+where
+    T: de::DeserializeOwned,
+{
+    let mut deserializer = ValueDeserializer { value: &value };
+    T::deserialize(&mut deserializer)
 }
 
-impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer {
+struct ValueDeserializer<'a> {
+    value: &'a Value,
+}
+
+impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer<'a> {
     type Error = Error;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        match &self.value {
+        match self.value {
             Value::Str(s) => visitor.visit_str(s),
-            Value::Obj(_) => visitor.visit_map(ValueMapAccess::new(&self.value)),
+            Value::Obj(_) => visitor.visit_map(ValueMapAccess::new(self.value)),
         }
     }
 
@@ -207,7 +228,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match &self.value {
+        match self.value {
             Value::Str(s) => visitor.visit_str(s),
             _ => Err(Error::ExpectedString),
         }
@@ -224,7 +245,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-         match &self.value {
+         match self.value {
             Value::Str(s) => {
                 if s == "1" { visitor.visit_bool(true) }
                 else if s == "0" { visitor.visit_bool(false) }
@@ -240,37 +261,37 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer {
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value {
+         match self.value {
             Value::Str(s) => visitor.visit_i32(s.parse().map_err(Error::IntParse)?),
             _ => Err(Error::ExpectedString),
         }
     }
     fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_i8(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_i8(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_i16(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_i16(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_i64(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_i64(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_u8(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_u8(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_u16(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_u16(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_u32(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_u32(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_u64(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_u64(s.parse().map_err(Error::IntParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_f32(s.parse().map_err(Error::FloatParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_f32(s.parse().map_err(Error::FloatParse)?), _ => Err(Error::ExpectedString) }
     }
     fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         match &self.value { Value::Str(s) => visitor.visit_f64(s.parse().map_err(Error::FloatParse)?), _ => Err(Error::ExpectedString) }
+         match self.value { Value::Str(s) => visitor.visit_f64(s.parse().map_err(Error::FloatParse)?), _ => Err(Error::ExpectedString) }
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value>
@@ -305,8 +326,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        match &self.value {
-            Value::Obj(_) => visitor.visit_map(ValueMapAccess::new(&self.value)),
+        match self.value {
+            Value::Obj(_) => visitor.visit_map(ValueMapAccess::new(self.value)),
              _ => Err(Error::ExpectedObjectStart),
         }
     }
@@ -432,7 +453,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut KeyDeserializer<'a> {
 }
 
 struct VecValueDeserializer<'a> {
-    vec: &'a Vec<Value>,
+    vec: &'a [Value],
 }
 
 impl<'a, 'de> de::Deserializer<'de> for &'a mut VecValueDeserializer<'a> {
@@ -443,7 +464,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut VecValueDeserializer<'a> {
         V: Visitor<'de>,
     {
         if self.vec.len() == 1 {
-            let mut de = ValueDeserializer { value: self.vec[0].clone() };
+            let mut de = ValueDeserializer { value: &self.vec[0] };
             de.deserialize_any(visitor)
         } else {
             self.deserialize_seq(visitor)
@@ -459,7 +480,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut VecValueDeserializer<'a> {
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
         if self.vec.len() == 1 {
-            let mut de = ValueDeserializer { value: self.vec[0].clone() };
+            let mut de = ValueDeserializer { value: &self.vec[0] };
             de.deserialize_str(visitor)
         } else {
              Err(Error::Message("Expected single string, found sequence".into()))
@@ -467,20 +488,18 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut VecValueDeserializer<'a> {
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         if self.vec.len() == 1 { let mut de = ValueDeserializer { value: self.vec[0].clone() }; de.deserialize_bool(visitor) } else { Err(Error::Message("Expected scalar".into())) }
+         if self.vec.len() == 1 { let mut de = ValueDeserializer { value: &self.vec[0] }; de.deserialize_bool(visitor) } else { Err(Error::Message("Expected scalar".into())) }
     }
     fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         if self.vec.len() == 1 { let mut de = ValueDeserializer { value: self.vec[0].clone() }; de.deserialize_i32(visitor) } else { Err(Error::Message("Expected scalar".into())) }
+         if self.vec.len() == 1 { let mut de = ValueDeserializer { value: &self.vec[0] }; de.deserialize_i32(visitor) } else { Err(Error::Message("Expected scalar".into())) }
     }
     fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
-         if self.vec.len() == 1 { let mut de = ValueDeserializer { value: self.vec[0].clone() }; de.deserialize_f32(visitor) } else { Err(Error::Message("Expected scalar".into())) }
+         if self.vec.len() == 1 { let mut de = ValueDeserializer { value: &self.vec[0] }; de.deserialize_f32(visitor) } else { Err(Error::Message("Expected scalar".into())) }
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
         if self.vec.is_empty() {
              visitor.visit_none()
-        } else if self.vec.len() == 1 {
-             visitor.visit_some(self)
         } else {
              visitor.visit_some(self)
         }
@@ -488,7 +507,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut VecValueDeserializer<'a> {
 
     fn deserialize_struct<V>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value> where V: Visitor<'de> {
         if self.vec.len() == 1 {
-             let mut de = ValueDeserializer { value: self.vec[0].clone() };
+             let mut de = ValueDeserializer { value: &self.vec[0] };
              de.deserialize_struct(name, fields, visitor)
         } else {
              Err(Error::Message("Expected struct, found sequence".into()))
@@ -497,7 +516,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut VecValueDeserializer<'a> {
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
         if self.vec.len() == 1 {
-             let mut de = ValueDeserializer { value: self.vec[0].clone() };
+             let mut de = ValueDeserializer { value: &self.vec[0] };
              de.deserialize_map(visitor)
         } else {
              Err(Error::Message("Expected map, found sequence".into()))
@@ -540,7 +559,7 @@ impl<'a, 'de> SeqAccess<'de> for ValueSeqAccess<'a> {
     {
         match self.iter.next() {
             Some(value) => {
-                let mut deserializer = ValueDeserializer { value: value.clone() };
+                let mut deserializer = ValueDeserializer { value };
                 seed.deserialize(&mut deserializer).map(Some)
             }
             None => Ok(None),

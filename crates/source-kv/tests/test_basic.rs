@@ -1,6 +1,22 @@
 use serde::{Deserialize, Serialize};
-use source_kv::{from_str, to_string};
+use source_kv::{from_str, to_string, from_value, Value, Deserializer};
 use indexmap::IndexMap;
+
+#[test]
+fn test_from_value() {
+    let input = r#"
+        "key" "value"
+        "num" "123"
+        "flag" "1"
+    "#;
+    let mut de = Deserializer::from_str(input);
+    let value: Value = de.parse_root().unwrap();
+    
+    let simple: Simple = from_value(value).unwrap();
+    assert_eq!(simple.key, "value");
+    assert_eq!(simple.num, 123);
+    assert_eq!(simple.flag, true);
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 struct Simple {
