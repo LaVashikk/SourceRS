@@ -1,13 +1,11 @@
 use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
 
-use crate::{GameInfoProvider, PackFile, utils};
+use crate::{FileSystemError, GameInfoProvider, PackFile, utils};
 
 #[derive(Debug, Clone, Default)]
 pub struct FileSystemOptions {
     pub bin_platform: Option<String>,
 }
-
-// todo: add custom error type for FileSystem later
 
 /// Core FileSystem representation holding physical directories and loaded pack files.
 pub struct FileSystem<P: PackFile> {
@@ -71,15 +69,6 @@ impl<P: PackFile> FileSystem<P> {
 
             let mut path = value;// .to_lowercase(); // todo: case insensitive!
 
-            let all_source_engine_paths = "|all_source_engine_paths|";
-            let gameinfo_path_macro = "|gameinfo_path|";
-
-            if path.starts_with(all_source_engine_paths) {
-                path = path[all_source_engine_paths.len()..].to_string();
-            } else if path.starts_with(gameinfo_path_macro) {
-                path = format!("{}/{}", game_id, &path[gameinfo_path_macro.len()..]);
-            }
-
             if path.ends_with('.') && !path.ends_with("..") {
                 path.pop();
             }
@@ -118,17 +107,15 @@ impl<P: PackFile> FileSystem<P> {
                         if glob_parent_path.is_dir() {
                             if let Ok(entries) = std::fs::read_dir(&glob_parent_path) {
                                 for entry in entries.flatten() {
-                                    if let Ok(rel_path) = entry.path().strip_prefix(&fs.root_path) {
-                                        let glob_child_path = utils::normalize_slashes(
-                                            &rel_path.to_string_lossy(),
-                                            false,
-                                            false,
-                                        );
-                                        fs.search_path_dirs
-                                            .entry(search.clone())
-                                            .or_default()
-                                            .push(PathBuf::from(glob_child_path));
-                                    }
+                                    let glob_child_path = utils::normalize_slashes(
+                                        &entry.path().to_string_lossy(),
+                                        false,
+                                        false,
+                                    );
+                                    fs.search_path_dirs
+                                        .entry(search.clone())
+                                        .or_default()
+                                        .push(PathBuf::from(glob_child_path));
                                 }
                             }
                         }
@@ -196,7 +183,11 @@ impl<P: PackFile> FileSystem<P> {
             .entry("config".to_string())
             .or_insert_with(|| vec![PathBuf::from("platform/config")]);
 
-        Some(fs)
+        Ok(fs)
+    }
+
+    pub fn root_path(&self) -> &PathBuf {
+        &self.root_path
     }
 
     pub fn search_path_dirs(&self) -> &HashMap<String, Vec<PathBuf>> {

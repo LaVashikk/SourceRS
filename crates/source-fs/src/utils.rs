@@ -23,6 +23,29 @@ pub(crate) fn resolve_path_case_insensitive(base_dir: &Path, relative_path: &str
     }
 }
 
+/// Resolves Source Engine macros like |all_source_engine_paths| and |gameinfo_path|
+/// and returns an absolute path.
+pub fn resolve_macro_path(value: &str, gameinfo_path: &Path) -> PathBuf {
+    let gameinfo_path = gameinfo_path.canonicalize().unwrap_or_else(|_| gameinfo_path.to_path_buf());
+    let game_dir = gameinfo_path.parent().unwrap_or_else(|| Path::new("."));
+    let engine_root = game_dir.parent().unwrap_or_else(|| Path::new("."));
+
+    const ALL_SOURCE_ENGINE_PATHS: &str = "|all_source_engine_paths|";
+    const GAMEINFO_PATH_MACRO: &str = "|gameinfo_path|";
+
+    let resolved = if value.starts_with(ALL_SOURCE_ENGINE_PATHS) {
+        engine_root.join(&value[ALL_SOURCE_ENGINE_PATHS.len()..])
+    } else if value.starts_with(GAMEINFO_PATH_MACRO) {
+        game_dir.join(&value[GAMEINFO_PATH_MACRO.len()..])
+    } else {
+        // If it's already absolute, join will just return it.
+        // Otherwise, standard Source behavior is relative to engine_root (the folder containing game folders)
+        engine_root.join(value)
+    };
+
+    resolved
+}
+
 /// Resolves a file path case-insensitively by iterating through directory contents.
 /// Required for Unix file systems where asset casing might not match the request.
 #[cfg(unix)]
