@@ -7,7 +7,6 @@ pub struct Serializer<W> {
     last_key: Option<String>,
     indent: usize,
     is_root: bool,
-    pretty_out: bool,
 }
 
 impl<W: Write> Serializer<W> {
@@ -17,7 +16,6 @@ impl<W: Write> Serializer<W> {
             last_key: None,
             indent: 0,
             is_root: true,
-            pretty_out: false,
         }
     }
 
