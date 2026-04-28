@@ -1,9 +1,11 @@
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 use serde::de::{self, Visitor, DeserializeSeed, MapAccess, SeqAccess};
 use crate::error::{Error, Result};
 
 /// Represents a KeyValues value.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Value {
     /// A simple string value.
     Str(String),
@@ -13,12 +15,54 @@ pub enum Value {
 }
 
 impl Value {
+    /// Checks if the value is a string.
+    pub fn is_str(&self) -> bool {
+        matches!(self, Value::Str(_))
+    }
+
+    /// Checks if the value is an object (block).
+    pub fn is_obj(&self) -> bool {
+        matches!(self, Value::Obj(_))
+    }
+
     /// Returns the string value if this is a `Value::Str`.
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) => Some(s),
             _ => None,
         }
+    }
+
+    /// Returns a reference to the internal IndexMap if this is a `Value::Obj`.
+    pub fn as_obj(&self) -> Option<&IndexMap<String, Vec<Value>>> {
+        match self {
+            Value::Obj(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    /// Returns a mutable reference to the internal IndexMap if this is a `Value::Obj`.
+    pub fn as_obj_mut(&mut self) -> Option<&mut IndexMap<String, Vec<Value>>> {
+        match self {
+            Value::Obj(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    /// A convenient method to get the FIRST value by key, if the current Value is an object.
+    /// Automatically accounts for case-insensitive keys in Source Engine (it is recommended to pass the key in lowercase).
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.as_obj()?.get(key)?.first()
+    }
+
+    /// Returns ALL values by key (since VDF allows duplicate keys).
+    pub fn get_all(&self, key: &str) -> Option<&Vec<Value>> {
+        self.as_obj()?.get(key)
+    }
+
+    /// A convenient shortcut: descends into an object by key and immediately tries to return a string.
+    pub fn get_string(&self, key: &str) -> Option<&str> {
+        self.get(key)?.as_str()
     }
 }
 
