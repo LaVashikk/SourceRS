@@ -23,9 +23,11 @@ impl<P: PackFile> FileSystem<P> {
         app_id: u32,
         game_name: &str,
         options: &FileSystemOptions,
-    ) -> Option<Self> {
-        let steamdir = steamlocate::locate().ok()?;
-        let (app, library) = steamdir.find_app(app_id).ok()??;
+    ) -> Result<Self, FileSystemError> {
+        let steamdir = steamlocate::SteamDir::locate().map_err(|_| FileSystemError::SteamNotFound)?;
+        let (app, library) = steamdir
+            .find_app(app_id)?
+            .ok_or(FileSystemError::SteamAppNotFound(app_id))?;
         let game_path = library.resolve_app_dir(&app).join(&game_name);
 
         Self::load_from_path::<G>(&game_path, options)
@@ -35,14 +37,19 @@ impl<P: PackFile> FileSystem<P> {
     pub fn load_from_path<G: GameInfoProvider>(
         game_path: &Path,
         options: &FileSystemOptions,
-    ) -> Option<Self> {
+    ) -> Result<Self, FileSystemError> {
         let gameinfo_path = game_path.join("gameinfo.txt");
         if !gameinfo_path.is_file() {
-            return None;
+            return Err(FileSystemError::GameInfoNotFound(gameinfo_path));
         }
 
-        let root_path = game_path.parent()?.to_path_buf();
-        let game_id = game_path.file_name()?.to_string_lossy().to_string();
+        let root_path = game_path.parent()
+            .ok_or_else(|| FileSystemError::InvalidGamePath(game_path.to_path_buf()))?
+            .to_path_buf();
+        let game_id = game_path.file_name()
+            .ok_or_else(|| FileSystemError::InvalidGamePath(game_path.to_path_buf()))?
+            .to_string_lossy()
+            .to_string();
 
         let mut fs = Self {
             root_path,
@@ -50,9 +57,10 @@ impl<P: PackFile> FileSystem<P> {
             search_path_vpks: HashMap::new(),
         };
 
-        let search_paths = G::get_search_paths(&gameinfo_path)?;
+        let search_paths = G::get_search_paths(&gameinfo_path)
+            .ok_or(FileSystemError::GameInfoParseError)?;
         if search_paths.is_empty() {
-            return Some(fs);
+            return Ok(fs);
         }
 
         for (i, (key, value)) in search_paths.into_iter().enumerate() {
