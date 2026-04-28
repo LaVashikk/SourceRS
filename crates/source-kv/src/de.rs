@@ -85,37 +85,27 @@ impl<'de> Deserializer<'de> {
         }
     }
 
-    fn peek_char(&self) -> Option<char> {
-        self.input[self.cursor..].chars().next()
-    }
-
-    fn next_char(&mut self) -> Option<char> {
-        let c = self.peek_char()?;
-        self.cursor += c.len_utf8();
-
-        if c == '\n' {
-            self.line += 1;
-            self.column = 1;
-        } else {
-            self.column += 1;
-        }
-
-        Some(c)
+    #[inline]
+    fn peek_byte(&self) -> Option<u8> {
+        self.input.as_bytes().get(self.cursor).copied()
     }
 
     fn skip_whitespace(&mut self) {
-        while let Some(c) = self.peek_char() {
-            if c.is_whitespace() {
-                self.next_char();
-            } else if c == '/' {
-                if self.input[self.cursor..].starts_with("//") {
-                    while let Some(nc) = self.next_char() {
-                        if nc == '\n' {
-                            break;
-                        }
-                    }
+        let bytes = self.input.as_bytes();
+        while self.cursor < bytes.len() {
+            let b = bytes[self.cursor];
+            if b.is_ascii_whitespace() {
+                if b == b'\n' {
+                    self.line += 1;
+                    self.column = 1;
                 } else {
-                    break;
+                    self.column += 1;
+                }
+                self.cursor += 1;
+            } else if b == b'/' && self.cursor + 1 < bytes.len() && bytes[self.cursor + 1] == b'/' {
+                self.cursor += 2;
+                while self.cursor < bytes.len() && bytes[self.cursor] != b'\n' {
+                    self.cursor += 1;
                 }
             } else {
                 break;
@@ -125,77 +115,116 @@ impl<'de> Deserializer<'de> {
 
     fn parse_string(&mut self) -> Result<String> {
         self.skip_whitespace();
-        match self.peek_char() {
-            Some('"') => {
-                self.next_char();
-                let mut s = String::with_capacity(32);
-                let mut escaped = false;
+        let bytes = self.input.as_bytes();
+        if self.cursor >= bytes.len() {
+            return Err(Error::Eof);
+        }
 
-                while let Some(c) = self.next_char() {
-                    if escaped {
-                        s.push('\\');
-                        s.push(c);
-                        escaped = false;
-                    } else if c == '\\' {
-                        escaped = true;
-                    } else if c == '"' {
-                        return Ok(s);
+        if bytes[self.cursor] == b'"' {
+            self.cursor += 1;
+            self.column += 1;
+            let start = self.cursor;
+            let mut has_escapes = false;
+
+            while self.cursor < bytes.len() {
+                let b = bytes[self.cursor];
+                if b == b'"' {
+                    let end = self.cursor;
+                    self.cursor += 1;
+                    self.column += 1;
+                    if !has_escapes {
+                        return Ok(self.input[start..end].to_string());
                     } else {
-                        s.push(c);
+                        // Slow path for escapes
+                        let mut s = String::with_capacity(end - start);
+                        let mut esc = false;
+                        for &byte in &bytes[start..end] {
+                            if esc {
+                                s.push('\\');
+                                s.push(byte as char);
+                                esc = false;
+                            } else if byte == b'\\' {
+                                esc = true;
+                            } else {
+                                s.push(byte as char);
+                            }
+                        }
+                        return Ok(s);
                     }
+                } else if b == b'\\' {
+                    has_escapes = true;
+                    self.cursor += 2;
+                    self.column += 2;
+                } else {
+                    if b == b'\n' {
+                        self.line += 1;
+                        self.column = 1;
+                    } else {
+                        self.column += 1;
+                    }
+                    self.cursor += 1;
                 }
-                Err(self.error("Unexpected end of file while parsing quoted string"))
             }
-            Some(c) if !c.is_whitespace() && c != '{' && c != '}' => {
-                 let start = self.cursor;
-
-                 while let Some(ch) = self.peek_char() {
-                     if ch.is_whitespace() || ch == '{' || ch == '}' || ch == '"' {
-                        break;
-                    }
-                    self.next_char();
-                 }
-                 let end = self.cursor;
-                 Ok(self.input[start..end].to_string())
+            Err(self.error("Unexpected end of file while parsing quoted string"))
+        } else {
+            let start = self.cursor;
+            while self.cursor < bytes.len() {
+                let b = bytes[self.cursor];
+                if b.is_ascii_whitespace() || b == b'{' || b == b'}' || b == b'"' {
+                    break;
+                }
+                self.cursor += 1;
+                self.column += 1;
             }
-            Some(c) => Err(self.error(&format!("Unexpected character: '{}'", c))),
-            None => Err(Error::Eof),
+            if start == self.cursor {
+                return Err(self.error("Expected string"));
+            }
+            Ok(self.input[start..self.cursor].to_string())
         }
     }
 
     /// Parses a single KeyValues value.
     pub fn parse_value(&mut self) -> Result<Value> {
         self.skip_whitespace();
-        match self.peek_char() {
-            Some('{') => {
-                self.next_char();
+        match self.peek_byte() {
+            Some(b'{') => {
+                self.cursor += 1;
+                self.column += 1;
                 let obj = self.parse_map_content()?;
                 Ok(Value::Obj(obj))
             }
-            _ => {
+            Some(b'"') => {
                 let s = self.parse_string()?;
                 Ok(Value::Str(s))
             }
+            Some(b) => {
+                if b != b'}' {
+                    let s = self.parse_string()?;
+                    Ok(Value::Str(s))
+                } else {
+                    Err(self.error(&format!("Expected '{{' or '\"', found '{}'", b as char)))
+                }
+            }
+            None => Err(Error::Eof),
         }
     }
 
     /// Parses the content of a KeyValues object.
     pub fn parse_map_content(&mut self) -> Result<IndexMap<String, Vec<Value>>> {
-        let mut map = IndexMap::new();
+        let mut map = IndexMap::with_capacity(8);
         loop {
             self.skip_whitespace();
-            match self.peek_char() {
-                Some('}') => {
-                    self.next_char();
+            match self.peek_byte() {
+                Some(b'}') => {
+                    self.cursor += 1;
+                    self.column += 1;
                     return Ok(map);
                 }
-                None => {
-                    return Err(self.error("Expected '}', found EOF"));
-                }
+                None => return Err(self.error("Expected '}', found EOF")),
                 _ => {
-                    let key = self.parse_string()?.to_lowercase();
+                    let key = self.parse_string()?;
                     let value = self.parse_value()?;
-                    map.entry(key).or_insert_with(Vec::new).push(value);
+                    map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value);
                 }
             }
         }
@@ -203,10 +232,10 @@ impl<'de> Deserializer<'de> {
 
     /// Parses the root level of a KeyValues document.
     pub fn parse_root(&mut self) -> Result<Value> {
-        let mut map = IndexMap::new();
+        let mut map = IndexMap::with_capacity(16);
         loop {
             self.skip_whitespace();
-            if self.peek_char().is_none() {
+            if self.peek_byte().is_none() {
                 break;
             }
             let key = match self.parse_string() {
@@ -215,7 +244,7 @@ impl<'de> Deserializer<'de> {
                 Err(e) => return Err(e),
             };
             let value = self.parse_value()?;
-            map.entry(key).or_insert_with(Vec::new).push(value);
+            map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value);
         }
         Ok(Value::Obj(map))
     }
@@ -345,25 +374,11 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer<'a> {
         visitor.visit_some(self)
     }
 
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_unit()
-    }
-
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        visitor.visit_newtype_struct(self)
-    }
-
-    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        Err(Error::Message("deserialize_seq called on single Value".into()))
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
+        match self.value {
+            Value::Obj(_) => visitor.visit_seq(ValueSeqAccess { iter: std::slice::from_ref(self.value).iter() }),
+            _ => Err(Error::ExpectedObjectStart),
+        }
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value>
@@ -372,7 +387,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer<'a> {
     {
         match self.value {
             Value::Obj(_) => visitor.visit_map(ValueMapAccess::new(self.value)),
-             _ => Err(Error::ExpectedObjectStart),
+            _ => Err(Error::ExpectedObjectStart),
         }
     }
 
@@ -400,16 +415,23 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut ValueDeserializer<'a> {
         Err(Error::Message("Enum deserialization not supported".into()))
     }
 
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> {
+        match self.value {
+            Value::Str(s) => visitor.visit_str(s),
+            _ => Err(Error::ExpectedString),
+        }
+    }
+    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { self.deserialize_any(visitor) }
+
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Char not supported".into())) }
     fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Bytes not supported".into())) }
     fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Bytes not supported".into())) }
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Char not supported".into())) }
+    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Unit not supported".into())) }
     fn deserialize_unit_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Unit struct not supported".into())) }
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Newtype struct not supported".into())) }
     fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Tuple not supported".into())) }
     fn deserialize_tuple_struct<V>(self, _name: &'static str, _len: usize, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::Message("Tuple struct not supported".into())) }
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { self.deserialize_str(visitor) }
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { self.deserialize_any(visitor) }
 }
-
 
 struct ValueMapAccess<'a> {
     iter: indexmap::map::Iter<'a, String, Vec<Value>>,
@@ -423,7 +445,7 @@ impl<'a> ValueMapAccess<'a> {
                 iter: map.iter(),
                 next_value: None,
             },
-            _ => panic!("ValueMapAccess created for non-Obj"),
+            _ => unreachable!(),
         }
     }
 }
@@ -438,8 +460,8 @@ impl<'a, 'de> MapAccess<'de> for ValueMapAccess<'a> {
         match self.iter.next() {
             Some((key, value)) => {
                 self.next_value = Some(value);
-                let mut key_deserializer = KeyDeserializer { key };
-                seed.deserialize(&mut key_deserializer).map(Some)
+                let key_deserializer = KeyDeserializer { key };
+                seed.deserialize(key_deserializer).map(Some)
             }
             None => Ok(None),
         }
@@ -463,8 +485,9 @@ struct KeyDeserializer<'a> {
     key: &'a str,
 }
 
-impl<'a, 'de> de::Deserializer<'de> for &'a mut KeyDeserializer<'a> {
+impl<'a, 'de> de::Deserializer<'de> for KeyDeserializer<'a> {
     type Error = Error;
+
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
@@ -495,6 +518,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut KeyDeserializer<'a> {
     fn deserialize_enum<V>(self, _name: &'static str, _variants: &'static [&'static str], _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::ExpectedKey) }
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { self.deserialize_any(visitor) }
 }
+
 
 struct VecValueDeserializer<'a> {
     vec: &'a [Value],
