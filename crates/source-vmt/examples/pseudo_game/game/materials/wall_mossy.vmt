@@ -1,0 +1,13 @@
+"patch"
+{
+    "include" "materials/base/wall.vmt"
+    "insert"
+    {
+        "$detail" "overlays/moss"
+        "$detailscale" "0.5"
+    }
+    "replace"
+    {
+        "$basetexture" "stone/brick_mossy"
+    }
+}

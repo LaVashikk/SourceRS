@@ -1,0 +1,24 @@
+[package]
+name = "source-vmt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+source-kv = { path = "../source-kv" }
+serde = { version = "1.0", features = ["derive"] }
+indexmap = { version = "2.2", features = ["serde"] }
+dashmap = { version = "5.5", optional = true }
+source-fs = { path = "../source-fs", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "vmt_bench"
+harness = false
+
+[features]
+default = []
+intern_keys = ["dep:dashmap"]
+material_system = []
+patch_resolution = ["material_system", "dep:source-fs"]

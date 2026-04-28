@@ -1,0 +1,7 @@
+"VertexLitGeneric"
+{
+    "$basetexture" "stone/brick_base"
+    "$surfaceprop" "stone"
+    "$phong"       "1"
+    "$customkey" "0"
+}
