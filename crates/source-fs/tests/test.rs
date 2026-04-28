@@ -1,7 +1,7 @@
-use source_fs::{FileSystem, FileSystemOptions, providers::{DummyVpk, P2GameInfo, SimpleGameInfo}};
+use source_fs::{FileSystem, FileSystemError, FileSystemOptions, providers::{DummyVpk, P2GameInfo, SimpleGameInfo, SimpleWithMount}};
 use std::path::Path;
 
-fn create_fs<P: AsRef<Path>>(game_dir: P) -> Option<FileSystem<DummyVpk>> {
+fn create_fs<P: AsRef<Path>>(game_dir: P) -> Result<FileSystem<DummyVpk>, FileSystemError> {
     let options = FileSystemOptions::default();
     FileSystem::<DummyVpk>::load_from_path::<SimpleGameInfo>(game_dir.as_ref(), &options)
 }
@@ -46,21 +46,27 @@ fn portal_game_test() {
     let data = fs.read("nothing.txt", "game", false);
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "nothing\n");
+
+    let data = fs.read("something_hl2", "game", false);
+    assert!(data.is_some());
+    assert_eq!(String::from_utf8_lossy(&data.unwrap()), "123\n");
 }
 
-// #[test]
-// fn hl2_game_test() {
-//     let fs = create_fs("tests/games/portal/portal").expect("Failed to create FileSystem");
-//     assert!(!fs.search_path_dirs().is_empty());
+#[test]
+fn mount_game_test() {
+    let path = Path::new("tests/games/gmod/garrysmod");
+    let fs = FileSystem::<DummyVpk>::load_from_path::<SimpleWithMount>(&path, &FileSystemOptions::default()).expect("Failed to create FileSystem");
 
-//     let data = fs.read("mod_test.txt", "game", false);
-//     assert!(data.is_some());
-//     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "Mod file in portal/custom/test_mod\n");
+    // this should be gmod/garrysmod/
+    let data = fs.read("cfg/mount.cfg", "game", false);
+    assert!(data.is_some());
 
-//     let data = fs.read("nothing.txt", "game", false);
-//     assert!(data.is_some());
-//     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "nothing\n");
-// }
+    // this should be HL2 content in `portal/hl2/` (from mount.cfg)
+    let data = fs.read("something_hl2", "game", false);
+    assert!(data.is_some());
+    assert_eq!(String::from_utf8_lossy(&data.unwrap()), "123\n");
+
+}
 
 #[test]
 fn portal2_game_test() {
