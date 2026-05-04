@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 use source_kv::{Value, Deserializer};
 use crate::interner::{VmtKey, intern_key};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Vmt {
     pub shader: String,
     pub properties: IndexMap<VmtKey, Vec<Value>>,
@@ -39,6 +39,12 @@ impl Vmt {
         Err(source_kv::Error::Message("Invalid VMT: Missing shader root or body".into()))
     }
 
+    /// Parses VMT from a file.
+    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, source_kv::Error> {
+        let content = std::fs::read_to_string(path)?;
+        Self::from_str(&content)
+    }
+
     /// Set a string property. Overwrites if exists.
     pub fn set_string(&mut self, key: &str, value: &str) -> &mut Self {
         self.properties.insert(
@@ -68,6 +74,16 @@ impl Vmt {
         self.properties.get(base.as_str())
             .or_else(|| self.properties.get(format!("${}", base).as_str()))
             .or_else(|| self.properties.get(format!("%{}", base).as_str()))
+            .or_else(|| {
+                if base.starts_with('$') || base.starts_with('%') {
+                    let raw = &base[1..];
+                    self.properties.get(raw)
+                        .or_else(|| self.properties.get(format!("${}", raw).as_str()))
+                        .or_else(|| self.properties.get(format!("%{}", raw).as_str()))
+                } else {
+                    None
+                }
+            })
             .and_then(|v| v.first())
     }
 
@@ -101,14 +117,12 @@ impl Vmt {
         let val = val.trim();
 
         if val.starts_with('[') && val.ends_with(']') {
-            // Parsing floats: "[1 0.5 0]"
             let parts: Vec<f32> = val[1..val.len()-1]
                 .split_whitespace()
                 .filter_map(|s| s.parse().ok())
                 .collect();
             if parts.len() >= 3 { return Some([parts[0], parts[1], parts[2]]); }
         } else if val.starts_with('{') && val.ends_with('}') {
-            // Parsing integers: "{255 128 0}"
             let parts: Vec<f32> = val[1..val.len()-1]
                 .split_whitespace()
                 .filter_map(|s| s.parse::<u8>().ok().map(|v| v as f32 / 255.0))
@@ -131,7 +145,6 @@ impl Vmt {
 
         let proxy_obj = Value::Obj(proxy_params);
 
-        // Get or create the Proxies block
         let proxies_vec = self.properties.entry(intern_key("proxies"))
             .or_insert_with(|| vec![Value::Obj(IndexMap::new())]);
 
@@ -156,5 +169,12 @@ impl Vmt {
         root_map.insert(self.shader.clone(), vec![Value::Obj(props)]);
 
         source_kv::to_string(&Value::Obj(root_map))
+    }
+
+    /// Serializes the VMT and writes it to a file.
+    pub fn to_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), source_kv::Error> {
+        let content = self.to_string()?;
+        std::fs::write(path, content)?;
+        Ok(())
     }
 }
