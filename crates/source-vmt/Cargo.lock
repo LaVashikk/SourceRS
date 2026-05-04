@@ -543,14 +543,18 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "source-fs"
-version = "0.1.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bbd94f5ea505cbbb67dccf78adbc27ef78ffed8095f28eec371fe61b401ccea"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "source-kv"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d492ba5f9e33d4236795f025e0e9bc85103e8e7cc675cf6e7ca3eb5299646af6"
 dependencies = [
  "indexmap",
  "serde",
@@ -559,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "source-vmt"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "dashmap",
