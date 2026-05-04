@@ -1,6 +1,6 @@
 [package]
 name = "source-fs"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 description = "A virtual filesystem implementation for Source Engine games, handling gameinfo.txt search paths, VPK archives, and cross-platform file resolution."
 license = "MIT"
