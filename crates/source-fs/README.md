@@ -6,14 +6,7 @@ It automatically parses `gameinfo.txt`, correctly resolves Valve's `SearchPaths`
 
 Inspired by [craftablescience/sourcepp](https://github.com/craftablescience/sourcepp).
 
-## Example
-
-Add this to your `Cargo.toml`:
-
-```toml
-[dependencies]
-source-fs = "0.1.0"
-```
+## Quick Start
 
 ### Loading the FileSystem and reading a file
 
