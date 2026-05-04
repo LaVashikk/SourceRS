@@ -20,5 +20,4 @@ harness = false
 [features]
 default = []
 intern_keys = ["dep:dashmap"]
-material_system = []
-patch_resolution = ["material_system", "dep:source-fs"]
+material_system = ["dep:source-fs"]
