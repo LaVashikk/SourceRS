@@ -1,23 +1,27 @@
 # source-kv
 
-A straightforward `serde` implementation for parsing and serializing Valve's textual Key-Values formats (such as `.vmf`, `.vmt`, `gameinfo.txt`, etc.).
-## Example
+A straightforward, high-performance `serde` implementation for parsing and serializing Valve's textual Key-Values formats (such as `.vmf`, `.vmt`, `gameinfo.txt`, `GameConfig.txt`, etc.).
 
-Add this to your `Cargo.toml`:
+## Key Features
 
-```toml
-[dependencies]
-source_kv = "0.1.0"
-serde = { version = "1.0", features = ["derive"] }
-````
+* **Full Serde Integration**: Seamlessly deserialize into custom Rust structs and serialize back using standard `#[derive(Deserialize, Serialize)]` attributes.
+* **Duplicate Key Support**: Valve's format heavily relies on duplicate keys (especially in `.vmf` files). `source-kv` natively handles this—just map repeated keys to a `Vec<T>`.
+* **Order Preservation**: Internally uses `IndexMap` to guarantee that the order of properties and blocks is preserved during serialization.
+* **Syntax Tolerance**: Safely handles unquoted keys, C-style line comments (`//`), and implicitly converts integer/boolean strings into native Rust types.
+* **Dynamic / Untyped API**: Don't want to write static structs? Parse files directly into a generic `source_kv::Value` (AST) and easily convert specific nodes to typed structs later using `from_value`.
 
-### Parsing a basic Map Entity
+## Quick Start
+
+### 1. Parsing Strongly-Typed Structures (e.g., VMF Entities)
+
+Repeated keys are easily captured using `Vec<T>` alongside `#[serde(rename = "...")]`.
 
 ```rust
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct MapData {
+    // VMF files can contain multiple 'entity' blocks
     #[serde(rename = "entity", default)]
     entities: Vec<Entity>,
 }
@@ -37,7 +41,7 @@ struct Connection {
     action: String,
 }
 
-fn main() {
+fn main() -> Result<(), source_kv::Error> {
     let vmf_data = r#"
     entity
     {
@@ -53,19 +57,65 @@ fn main() {
     }
     "#;
 
-    let parsed_entity: MapData = source_kv::from_str(vmf_data).unwrap();
-    println!("{:#?}", parsed_entity.entities);
+    let parsed: MapData = source_kv::from_str(vmf_data)?;
+    println!("{:#?}", parsed.entities);
+    
+    Ok(())
 }
 ```
 
-Repeated keys (very common in VMF) are supported using `Vec<T>` with `#[serde(rename = "...")]`.
+### 2. Using the Dynamic AST (`source_kv::Value`)
 
-More examples are available in the [`examples/`](examples/) directory.
+Sometimes you don't know the exact structure upfront. You can parse the document into an untyped tree and deserialize specific parts on demand.
 
-## API
+```rust
+use serde::Deserialize;
+use source_kv::{Deserializer, Value, from_value};
 
-- `source_kv::from_str` — deserialize from `&str`
-- `source_kv::to_string` — serialize to `String`
+#[derive(Debug, Deserialize)]
+struct ToolConfig {
+    #[serde(rename = "GameExe")]
+    game_exe: String,
+}
+
+fn main() -> Result<(), source_kv::Error> {
+    let input = r#"
+        "Configs"
+        {
+            "Games"
+            {
+                "Portal 2"
+                {
+                    "GameExe" "portal2.exe"
+                }
+            }
+        }
+    "#;
+
+    // Parse into an untyped Value tree
+    let mut de = Deserializer::from_str(input);
+    let root: Value = de.parse_root()?;
+
+    // Traverse the AST natively
+    if let Some(portal_config) = root.get("Configs")
+        .and_then(|c| c.get("Games"))
+        .and_then(|g| g.get("Portal 2")) 
+    {
+        // Convert the specific untyped block into a typed Rust struct
+        let config: ToolConfig = from_value(portal_config.clone())?;
+        println!("Executable: {}", config.game_exe);
+    }
+
+    Ok(())
+}
+```
+
+## API Overview
+
+- `source_kv::from_str` — Deserialize a KeyValues string directly into a typed struct `T`.
+- `source_kv::to_string` — Serialize a typed struct `T` back into KeyValues format.
+- `source_kv::Value` — An enum representing the AST (`Str` or `Obj`), offering ergonomic getters like `.get(key)` and `.get_string(key)`.
+- `source_kv::from_value` — Convert an existing AST `Value` node into a Serde-compatible struct `T`.
 
 ## License
 MIT License.
