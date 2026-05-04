@@ -4,6 +4,7 @@ use crate::{GameInfoProvider, PackFile};
 
 /// A dummy implementation that ignores VPK files.
 /// Forces the FileSystem to read exclusively from physical disk directories.
+#[derive(Debug, Clone, Copy)]
 pub struct DummyVpk;
 
 impl PackFile for DummyVpk {

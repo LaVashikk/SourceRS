@@ -8,10 +8,21 @@ pub struct FileSystemOptions {
 }
 
 /// Core FileSystem representation holding physical directories and loaded pack files.
+#[derive(Debug)]
 pub struct FileSystem<P: PackFile> {
     root_path: PathBuf,
     search_path_dirs: HashMap<String, Vec<PathBuf>>,
     search_path_vpks: HashMap<String, Vec<Arc<P>>>,
+}
+
+impl<P: PackFile> Clone for FileSystem<P> {
+    fn clone(&self) -> Self {
+        Self {
+            root_path: self.root_path.clone(),
+            search_path_dirs: self.search_path_dirs.clone(),
+            search_path_vpks: self.search_path_vpks.clone(),
+        }
+    }
 }
 
 impl<P: PackFile> FileSystem<P> {
@@ -206,6 +217,20 @@ impl<P: PackFile> FileSystem<P> {
         &mut self.search_path_vpks
     }
 
+    /// Formats an asset path, safely preventing duplicated prefixes or suffixes.
+    fn format_asset_path(name: &str, prefix: &str, suffix: &str) -> String {
+        let mut path = String::with_capacity(name.len() + prefix.len() + suffix.len());
+        if !prefix.is_empty() && !name.starts_with(prefix) {
+            path.push_str(prefix);
+        }
+        path.push_str(name);
+        if !suffix.is_empty() && !name.ends_with(suffix) {
+            path.push_str(suffix);
+        }
+
+        path
+    }
+
     pub fn find_file(&self, file_path: &str, search_path: &str) -> Option<PathBuf> {
         let file_path_str = utils::normalize_slashes(&file_path.to_lowercase(), true, false);
         let search_path_str = search_path.to_lowercase();
@@ -266,6 +291,56 @@ impl<P: PackFile> FileSystem<P> {
         let data = self.read(file_path, search_path, prioritize_vpks)?;
         // Some(String::from_utf8_lossy(&data).to_string())
         String::from_utf8(data).ok()
+    }
+
+    /// Finds an asset's PathBuf without reading its contents into memory.
+    pub fn find_asset(&self, name: &str, prefix: &str, suffix: &str, search_path: &str) -> Option<PathBuf> {
+        let path = Self::format_asset_path(name, prefix, suffix);
+        self.find_file(&path, search_path)
+    }
+
+    /// Reads any asset as raw bytes, safely appending prefix and suffix if missing.
+    pub fn read_asset(&self, name: &str, prefix: &str, suffix: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
+        let path = Self::format_asset_path(name, prefix, suffix);
+        self.read(&path, search_path, prioritize_vpks)
+    }
+
+    /// Reads any asset as a UTF-8 string, safely appending prefix and suffix if missing.
+    pub fn read_asset_str(&self, name: &str, prefix: &str, suffix: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
+        self.read_asset(name, prefix, suffix, search_path, prioritize_vpks)
+            .and_then(|data| String::from_utf8(data).ok())
+    }
+
+    /// Reads a material file (.vmt).
+    pub fn read_material(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
+        self.read_asset(name, "materials/", ".vmt", search_path, prioritize_vpks)
+    }
+
+    /// Reads a material file (.vmt) as a UTF-8 string.
+    pub fn read_material_str(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
+        self.read_asset_str(name, "materials/", ".vmt", search_path, prioritize_vpks)
+    }
+
+    /// Reads a model file (.mdl).
+    pub fn read_model(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
+        self.read_asset(name, "models/", ".mdl", search_path, prioritize_vpks)
+    }
+
+    /// Reads a model file (.mdl) as a UTF-8 string.
+    pub fn read_model_str(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
+        self.read_asset_str(name, "models/", ".mdl", search_path, prioritize_vpks)
+    }
+
+    /// Reads a sound file (.wav or fallback to .mp3) as a UTF-8 string.
+    pub fn read_sound_str(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
+        // Try exact name or append .wav
+        if let Some(data) = self.read_asset_str(name, "sound/", ".wav", search_path, prioritize_vpks) {
+            return Some(data);
+        }
+
+        // Fallback to .mp3
+        let clean_name = name.strip_suffix(".wav").unwrap_or(name);
+        self.read_asset_str(clean_name, "sound/", ".mp3", search_path, prioritize_vpks)
     }
 
     fn find_in_vpks(&self, search_path: &str, file_path: &str) -> Option<PathBuf> {
