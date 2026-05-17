@@ -552,9 +552,9 @@ dependencies = [
 
 [[package]]
 name = "source-kv"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d492ba5f9e33d4236795f025e0e9bc85103e8e7cc675cf6e7ca3eb5299646af6"
+checksum = "ea2a08f11635d53bd1fbc4f29e8b007a5f0b68fa9c8c9b57824d24bc4a20c84e"
 dependencies = [
  "indexmap",
  "serde",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "source-vmt"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "dashmap",
