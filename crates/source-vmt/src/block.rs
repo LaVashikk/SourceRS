@@ -1,5 +1,7 @@
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use crate::vmt::Vmt;
+use crate::interner::intern_key;
 
 impl Vmt {
     /// Deserializes a specific block into a Serde-compatible struct.
@@ -9,5 +11,18 @@ impl Vmt {
             return Ok(Some(parsed));
         }
         Ok(None)
+    }
+
+    /// Serializes a Serde-compatible struct and sets it as a block.
+    /// Overwrites the block if it already exists.
+    pub fn set_block<T: Serialize>(&mut self, key: &str, value: &T) -> Result<&mut Self, source_kv::Error> {
+        let serialized_value = source_kv::to_value(value)?;
+        
+        self.properties.insert(
+            intern_key(key),
+            vec![serialized_value]
+        );
+        
+        Ok(self)
     }
 }

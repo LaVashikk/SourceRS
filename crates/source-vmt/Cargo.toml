@@ -11,7 +11,7 @@ keywords = ["source-engine", "sdk", "gamedev"]
 categories = ["game-development"]
 
 [dependencies]
-source-kv = "0.3.0"
+source-kv = "0.4.0"
 source-fs = { version = "0.3.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 indexmap = { version = "2.2", features = ["serde"] }
