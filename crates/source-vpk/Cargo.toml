@@ -1,0 +1,16 @@
+[package]
+name = "source-vpk"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+crc32fast = "1.5"
+indexmap = "2.14"
+md-5 = "0.11"
+serde = { version = "1.0", features = ["derive"], optional = true }
+thiserror = "2.0"
+
+[features]
+default = []
+serde = ["dep:serde", "indexmap/serde"]
