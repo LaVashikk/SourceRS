@@ -76,3 +76,47 @@ impl<'a> Cursor<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_little_endian_values_and_strings() {
+        let bytes = [0x34, 0x12, 0x78, 0x56, 0x34, 0x12, b'a', b'b', 0];
+        let mut cursor = Cursor::new(&bytes, Section::Tree);
+
+        assert_eq!(cursor.read_u16().unwrap(), 0x1234);
+        assert_eq!(cursor.read_u32().unwrap(), 0x1234_5678);
+        assert_eq!(cursor.read_c_string().unwrap(), b"ab");
+        assert_eq!(cursor.remaining(), 0);
+    }
+
+    #[test]
+    fn reports_the_failing_offset() {
+        let mut cursor = Cursor::new(&[1, 2, 3], Section::Header);
+        let error = cursor.read_u32().unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::UnexpectedEof {
+                section: Section::Header,
+                offset: 0,
+                needed: 4,
+                remaining: 3,
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_unterminated_strings() {
+        let mut cursor = Cursor::new(b"abc", Section::Tree);
+        assert!(matches!(
+            cursor.read_c_string().unwrap_err(),
+            Error::UnterminatedString {
+                section: Section::Tree,
+                offset: 0,
+            }
+        ));
+    }
+}
