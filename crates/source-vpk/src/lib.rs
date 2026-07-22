@@ -11,3 +11,9 @@ mod error;
 mod format;
 mod reader;
 mod tree;
+
+pub use archive::{ArchiveVerification, Vpk};
+pub use entry::{ArchiveIndex, Entry};
+pub use error::{Error, Result, Section};
+pub use format::{ArchiveMd5Entry, Version};
+pub use reader::EntryReader;
