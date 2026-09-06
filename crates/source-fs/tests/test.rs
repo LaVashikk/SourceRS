@@ -11,11 +11,11 @@ fn simple_game_test() {
     let fs = create_fs("tests/games/simple/game").expect("Failed to create FileSystem");
     assert!(!fs.search_path_dirs().is_empty());
 
-    let data = fs.read("scripts/test.txt", "game", false);
+    let data = fs.read("scripts/test.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "Hello world");
 
-    let data = fs.read("other_test.txt", "game", false);
+    let data = fs.read("other_test.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "File in other_folder");
 }
@@ -25,11 +25,11 @@ fn simple_2_game_test() {
     let fs = create_fs("tests/games/simple_inside").expect("Failed to create FileSystem");
     assert!(!fs.search_path_dirs().is_empty());
 
-    let data = fs.read("scripts/test.txt", "game", false);
+    let data = fs.read("scripts/test.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "Hello world\n");
 
-    let data = fs.read("other_test.txt", "game", false);
+    let data = fs.read("other_test.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "File in other_folder\n");
 }
@@ -39,15 +39,15 @@ fn portal_game_test() {
     let fs = create_fs("tests/games/portal/portal").expect("Failed to create FileSystem");
     assert!(!fs.search_path_dirs().is_empty());
 
-    let data = fs.read("mod_test.txt", "game", false);
+    let data = fs.read("mod_test.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "Mod file in portal/custom/test_mod\n");
 
-    let data = fs.read("nothing.txt", "game", false);
+    let data = fs.read("nothing.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "nothing\n");
 
-    let data = fs.read("something_hl2", "game", false);
+    let data = fs.read("something_hl2", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "123\n");
 }
@@ -58,11 +58,11 @@ fn mount_game_test() {
     let fs = FileSystem::<DummyVpk>::load_from_path::<SimpleWithMount>(&path, &FileSystemOptions::default()).expect("Failed to create FileSystem");
 
     // this should be gmod/garrysmod/
-    let data = fs.read("cfg/mount.cfg", "game", false);
+    let data = fs.read("cfg/mount.cfg", "game", false).unwrap();
     assert!(data.is_some());
 
     // this should be HL2 content in `portal/hl2/` (from mount.cfg)
-    let data = fs.read("something_hl2", "game", false);
+    let data = fs.read("something_hl2", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "123\n");
 
@@ -78,21 +78,21 @@ fn portal2_game_test() {
     let fs = create_fs(&path).expect("Failed to create FileSystem");
     assert!(!fs.search_path_dirs().is_empty());
 
-    let data = fs.read("file1.txt", "game", false);
+    let data = fs.read("file1.txt", "game", false).unwrap();
     assert!(data.is_none());
 
     let options = FileSystemOptions::default();
     let fs_p2 = FileSystem::<DummyVpk>::load_from_path::<P2GameInfo>(path, &options).expect("Failed to create P2 FileSystem");
 
-    let data = fs_p2.read("file1.txt", "game", false);
+    let data = fs_p2.read("file1.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "1\n");
 
-    let data = fs_p2.read("file2.txt", "game", false);
+    let data = fs_p2.read("file2.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "2\n");
 
-    let data = fs_p2.read("file3.txt", "game", false);
+    let data = fs_p2.read("file3.txt", "game", false).unwrap();
     assert!(data.is_some());
     assert_eq!(String::from_utf8_lossy(&data.unwrap()), "3\n");
 

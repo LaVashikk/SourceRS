@@ -13,20 +13,35 @@ Inspired by [craftablescience/sourcepp](https://github.com/craftablescience/sour
 ```rust
 use source_fs::create_fs;
 
-fn main() {
-    // Pass the path to the game directory containing gameinfo.txt
-    let fs = create_fs("path/to/Half-Life 2/hl2");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let fs = create_fs("path/to/Half-Life 2/hl2")?;
 
-    // Read a file from the virtual filesystem
-    // Parameters: file_path, search_path_group, prioritize_vpks
-    let file_content = fs.read_str("scripts/game_sounds.txt", "game", false);
-
-    match file_content {
-        Some(content) => println!("Found file!\n{}", content),
+    match fs.read_str("scripts/game_sounds.txt", "game", false)? {
+        Some(content) => println!("Found file!\n{content}"),
         None => println!("File not found in the virtual filesystem."),
     }
+    Ok(())
 }
 ```
+
+### Loading VPK search paths
+
+`create_fs` keeps the loose-file-only behavior. Use `create_vpk_fs` when `gameinfo.txt` contains explicit `.vpk` search paths:
+
+```rust
+use source_fs::create_vpk_fs;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let fs = create_vpk_fs("path/to/game_dir")?;
+    let bytes = fs.read("materials/example.vmt", "game", false)?
+        .ok_or("material not found")?;
+
+    println!("read {} bytes", bytes.len());
+    Ok(())
+}
+```
+
+`Vpk` is also re-exported for direct use with the generic API: `FileSystem::<source_fs::Vpk>::load_from_path(...)`.
 
 ### Using Steam auto-discovery (requires `steam` feature)
 
@@ -47,14 +62,19 @@ fn main() {
     let fs = FileSystem::<DummyVpk>::load_from_app_id::<SimpleGameInfo>(620, "portal2", &options)
         .expect("Failed to locate game via Steam");
 
-    let file = fs.read_str("scripts/vscripts/mapspawn.nut", "game", false).unwrap();
+    let file = fs
+        .read_str("scripts/vscripts/mapspawn.nut", "game", false)
+        .expect("Failed to read file")
+        .expect("File not found");
     println!("Found file:\n{}", file);
 }
 ```
 
 ## API
 
-- `source_fs::create_fs` - Initialize the filesystem from a local physical directory.
+- `source_fs::create_fs` - Initialize a loose-file-only filesystem.
+- `source_fs::create_vpk_fs` - Initialize a filesystem with VPK search paths enabled.
+- `source_fs::VpkFileSystem` - Convenience alias for `FileSystem<source_fs::Vpk>`.
 - `source_fs::FileSystem` - The core struct managing search paths and mounted archives.
   - `.load_from_path::<G>()` - Load custom `GameInfoProvider`.
   - `.read()` - Read a file as raw bytes (`Vec<u8>`).

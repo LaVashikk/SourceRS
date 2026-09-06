@@ -8,17 +8,36 @@ use crate::{GameInfoProvider, PackFile};
 pub struct DummyVpk;
 
 impl PackFile for DummyVpk {
-    fn open<P: AsRef<Path>>(_path: P) -> Option<Self> {
-        // Always return None to indicate no VPK was loaded.
-        None
+    type Error = std::convert::Infallible;
+    type Reader<'a> = std::io::Cursor<Vec<u8>>;
+
+    fn open<P: AsRef<Path>>(_path: P) -> Result<Option<Self>, Self::Error> {
+        Ok(None)
     }
 
     fn has_entry(&self, _path: &str) -> bool {
         false
     }
 
-    fn read_entry(&self, _path: &str) -> Option<Vec<u8>> {
-        None
+    fn open_entry<'a>(&'a self, _path: &str) -> Result<Self::Reader<'a>, Self::Error> {
+        Ok(std::io::Cursor::new(Vec::new()))
+    }
+}
+
+impl PackFile for source_vpk::Vpk {
+    type Error = source_vpk::Error;
+    type Reader<'a> = source_vpk::EntryReader;
+
+    fn open<P: AsRef<Path>>(path: P) -> Result<Option<Self>, Self::Error> {
+        source_vpk::Vpk::open(path).map(Some)
+    }
+
+    fn has_entry(&self, path: &str) -> bool {
+        self.contains(path)
+    }
+
+    fn open_entry<'a>(&'a self, path: &str) -> Result<Self::Reader<'a>, Self::Error> {
+        source_vpk::Vpk::open_entry(self, path)
     }
 }
 

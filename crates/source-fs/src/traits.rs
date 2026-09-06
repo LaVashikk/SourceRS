@@ -1,17 +1,24 @@
+use std::error::Error;
+use std::io::{Read, Seek};
 use std::path::Path;
 
-/// Represents a loaded VPK or generic pack file archive.
+/// Archive backend mounted by [`crate::FileSystem`].
 pub trait PackFile {
-    /// Opens a pack file from the given physical path.
-    fn open<P: AsRef<Path>>(path: P) -> Option<Self>
+    type Error: Error + Send + Sync + 'static;
+    type Reader<'a>: Read + Seek + 'a
+    where
+        Self: 'a;
+
+    /// Opens an archive, or returns `Ok(None)` when this backend intentionally
+    /// ignores pack files (as the loose-file-only backend does).
+    fn open<P: AsRef<Path>>(path: P) -> Result<Option<Self>, Self::Error>
     where
         Self: Sized;
 
-    /// Checks if a given file entry exists within the pack file.
     fn has_entry(&self, path: &str) -> bool;
 
-    /// Reads the specified entry's binary data from the pack file.
-    fn read_entry(&self, path: &str) -> Option<Vec<u8>>;
+    /// Opens one entry without forcing the complete payload into memory.
+    fn open_entry<'a>(&'a self, path: &str) -> Result<Self::Reader<'a>, Self::Error>;
 }
 
 /// Provides parsing capabilities for `gameinfo.txt` to extract search paths.

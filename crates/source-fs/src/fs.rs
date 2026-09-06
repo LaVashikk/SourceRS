@@ -1,4 +1,5 @@
 use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
+use std::io::{Read, Seek, SeekFrom};
 
 use crate::{FileSystemError, GameInfoProvider, PackFile, utils};
 
@@ -13,6 +14,30 @@ pub struct FileSystem<P: PackFile> {
     root_path: PathBuf,
     search_path_dirs: HashMap<String, Vec<PathBuf>>,
     search_path_vpks: HashMap<String, Vec<Arc<P>>>,
+}
+
+/// Streaming file handle returned by the virtual filesystem.
+pub enum FileReader<'a, P: PackFile + 'a> {
+    Loose(std::fs::File),
+    Packed(P::Reader<'a>),
+}
+
+impl<'a, P: PackFile + 'a> Read for FileReader<'a, P> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Loose(file) => file.read(buffer),
+            Self::Packed(file) => file.read(buffer),
+        }
+    }
+}
+
+impl<'a, P: PackFile + 'a> Seek for FileReader<'a, P> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        match self {
+            Self::Loose(file) => file.seek(position),
+            Self::Packed(file) => file.seek(position),
+        }
+    }
 }
 
 impl<P: PackFile> Clone for FileSystem<P> {
@@ -103,7 +128,9 @@ impl<P: PackFile> FileSystem<P> {
                     }
                 }
 
-                if let Some(pack) = P::open(&full_path).map(Arc::new) {
+                let pack = P::open(&full_path)
+                    .map_err(|error| FileSystemError::pack(full_path.clone(), error))?;
+                if let Some(pack) = pack.map(Arc::new) {
                     for search in &searches {
                         fs.search_path_vpks
                             .entry(search.clone())
@@ -247,50 +274,113 @@ impl<P: PackFile> FileSystem<P> {
         None
     }
 
-    /// Reads data from the internal mounted paths using standard Source Engine priorities.
-    pub fn read(&self, file_path: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
-        let file_path_str = utils::normalize_slashes(&file_path.to_lowercase(), true, false);
-        let search_path_str = search_path.to_lowercase();
+    /// Opens a file from the mounted paths without reading it into memory.
+    pub fn open(
+        &self,
+        file_path: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<FileReader<'_, P>>, FileSystemError> {
+        let file_path = utils::normalize_slashes(&file_path.to_lowercase(), true, false);
+        let search_path = search_path.to_lowercase();
 
         if prioritize_vpks {
-            if let Some(data) = self.check_vpks(&search_path_str, &file_path_str) {
-                return Some(data);
+            if let Some(file) = self.open_from_vpks(&search_path, &file_path)? {
+                return Ok(Some(file));
             }
         }
 
-        if let Some(resolved_path) = self.find_file(&file_path_str, &search_path_str) {
-            if let Ok(data) = std::fs::read(resolved_path) {
-                return Some(data);
-            }
+        if let Some(path) = self.find_file(&file_path, &search_path) {
+            let file = std::fs::File::open(&path).map_err(|source| FileSystemError::Io {
+                path,
+                source,
+            })?;
+            return Ok(Some(FileReader::Loose(file)));
         }
 
         if !prioritize_vpks {
-            return self.check_vpks(&search_path_str, &file_path_str);
+            return self.open_from_vpks(&search_path, &file_path);
         }
 
-        None
+        Ok(None)
     }
 
-    /// Same as `read`, but takes an optional active map pack file which gets highest priority.
+    /// Reads data from the internal mounted paths using standard Source Engine priorities.
+    pub fn read(
+        &self,
+        file_path: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<Vec<u8>>, FileSystemError> {
+        let Some(mut file) = self.open(file_path, search_path, prioritize_vpks)? else {
+            return Ok(None);
+        };
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).map_err(|source| FileSystemError::Io {
+            path: PathBuf::from(file_path),
+            source,
+        })?;
+        Ok(Some(data))
+    }
+
+    /// Same as `open`, but an active map pack gets the highest priority.
+    pub fn open_for_map<'a>(
+        &'a self,
+        map_pack: Option<&'a P>,
+        file_path: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<FileReader<'a, P>>, FileSystemError> {
+        if let Some(map) = map_pack {
+            if map.has_entry(file_path) {
+                let file = map
+                    .open_entry(file_path)
+                    .map_err(|error| FileSystemError::pack_entry(file_path.to_string(), error))?;
+                return Ok(Some(FileReader::Packed(file)));
+            }
+        }
+        self.open(file_path, search_path, prioritize_vpks)
+    }
+
+    /// Same as `read`, but an active map pack gets the highest priority.
     pub fn read_for_map(
         &self,
         map_pack: Option<&P>,
         file_path: &str,
         search_path: &str,
         prioritize_vpks: bool,
-    ) -> Option<Vec<u8>> {
-        if let Some(map) = map_pack {
-            if map.has_entry(file_path) {
-                return map.read_entry(file_path);
-            }
-        }
-        self.read(file_path, search_path, prioritize_vpks)
+    ) -> Result<Option<Vec<u8>>, FileSystemError> {
+        let Some(mut file) = self.open_for_map(
+            map_pack,
+            file_path,
+            search_path,
+            prioritize_vpks,
+        )? else {
+            return Ok(None);
+        };
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).map_err(|source| FileSystemError::Io {
+            path: PathBuf::from(file_path),
+            source,
+        })?;
+        Ok(Some(data))
     }
 
-    pub fn read_str(&self, file_path: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
-        let data = self.read(file_path, search_path, prioritize_vpks)?;
-        // Some(String::from_utf8_lossy(&data).to_string())
-        String::from_utf8(data).ok()
+    pub fn read_str(
+        &self,
+        file_path: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<String>, FileSystemError> {
+        let Some(data) = self.read(file_path, search_path, prioritize_vpks)? else {
+            return Ok(None);
+        };
+        String::from_utf8(data)
+            .map(Some)
+            .map_err(|source| FileSystemError::Utf8 {
+                path: file_path.to_string(),
+                source,
+            })
     }
 
     /// Finds an asset's PathBuf without reading its contents into memory.
@@ -299,69 +389,117 @@ impl<P: PackFile> FileSystem<P> {
         self.find_file(&path, search_path)
     }
 
+    /// Opens any asset, safely appending its prefix and suffix when missing.
+    pub fn open_asset(
+        &self,
+        name: &str,
+        prefix: &str,
+        suffix: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<FileReader<'_, P>>, FileSystemError> {
+        let path = Self::format_asset_path(name, prefix, suffix);
+        self.open(&path, search_path, prioritize_vpks)
+    }
+
     /// Reads any asset as raw bytes, safely appending prefix and suffix if missing.
-    pub fn read_asset(&self, name: &str, prefix: &str, suffix: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
+    pub fn read_asset(
+        &self,
+        name: &str,
+        prefix: &str,
+        suffix: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<Vec<u8>>, FileSystemError> {
         let path = Self::format_asset_path(name, prefix, suffix);
         self.read(&path, search_path, prioritize_vpks)
     }
 
     /// Reads any asset as a UTF-8 string, safely appending prefix and suffix if missing.
-    pub fn read_asset_str(&self, name: &str, prefix: &str, suffix: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
-        self.read_asset(name, prefix, suffix, search_path, prioritize_vpks)
-            .and_then(|data| String::from_utf8(data).ok())
+    pub fn read_asset_str(
+        &self,
+        name: &str,
+        prefix: &str,
+        suffix: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<String>, FileSystemError> {
+        let path = Self::format_asset_path(name, prefix, suffix);
+        self.read_str(&path, search_path, prioritize_vpks)
     }
 
     /// Reads a material file (.vmt).
-    pub fn read_material(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
+    pub fn read_material(
+        &self,
+        name: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<Vec<u8>>, FileSystemError> {
         self.read_asset(name, "materials/", ".vmt", search_path, prioritize_vpks)
     }
 
     /// Reads a material file (.vmt) as a UTF-8 string.
-    pub fn read_material_str(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
+    pub fn read_material_str(
+        &self,
+        name: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<String>, FileSystemError> {
         self.read_asset_str(name, "materials/", ".vmt", search_path, prioritize_vpks)
     }
 
     /// Reads a model file (.mdl).
-    pub fn read_model(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<Vec<u8>> {
+    pub fn read_model(
+        &self,
+        name: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<Vec<u8>>, FileSystemError> {
         self.read_asset(name, "models/", ".mdl", search_path, prioritize_vpks)
     }
 
     /// Reads a model file (.mdl) as a UTF-8 string.
-    pub fn read_model_str(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
+    pub fn read_model_str(
+        &self,
+        name: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<String>, FileSystemError> {
         self.read_asset_str(name, "models/", ".mdl", search_path, prioritize_vpks)
     }
 
     /// Reads a sound file (.wav or fallback to .mp3) as a UTF-8 string.
-    pub fn read_sound_str(&self, name: &str, search_path: &str, prioritize_vpks: bool) -> Option<String> {
-        // Try exact name or append .wav
-        if let Some(data) = self.read_asset_str(name, "sound/", ".wav", search_path, prioritize_vpks) {
-            return Some(data);
+    pub fn read_sound_str(
+        &self,
+        name: &str,
+        search_path: &str,
+        prioritize_vpks: bool,
+    ) -> Result<Option<String>, FileSystemError> {
+        if let Some(data) =
+            self.read_asset_str(name, "sound/", ".wav", search_path, prioritize_vpks)?
+        {
+            return Ok(Some(data));
         }
 
-        // Fallback to .mp3
         let clean_name = name.strip_suffix(".wav").unwrap_or(name);
         self.read_asset_str(clean_name, "sound/", ".mp3", search_path, prioritize_vpks)
     }
 
-    fn find_in_vpks(&self, search_path: &str, file_path: &str) -> Option<PathBuf> {
+    fn open_from_vpks<'a>(
+        &'a self,
+        search_path: &str,
+        file_path: &str,
+    ) -> Result<Option<FileReader<'a, P>>, FileSystemError> {
         if let Some(vpks) = self.search_path_vpks.get(search_path) {
             for vpk in vpks {
                 if vpk.has_entry(file_path) {
-                    return Some(PathBuf::from(file_path));
+                    let file = vpk
+                        .open_entry(file_path)
+                        .map_err(|error| FileSystemError::pack_entry(file_path.to_string(), error))?;
+                    return Ok(Some(FileReader::Packed(file)));
                 }
             }
         }
-        None
-    }
-
-    fn check_vpks(&self, search_path: &str, file_path: &str) -> Option<Vec<u8>> {
-        if let Some(vpks) = self.search_path_vpks.get(search_path) {
-            for vpk in vpks {
-                if vpk.has_entry(file_path) {
-                    return vpk.read_entry(file_path);
-                }
-            }
-        }
-        None
+        Ok(None)
     }
 }

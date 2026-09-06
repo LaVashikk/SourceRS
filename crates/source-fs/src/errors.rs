@@ -16,6 +16,34 @@ pub enum FileSystemError {
     #[error("failed to parse gameinfo.txt")]
     GameInfoParseError,
 
+    #[error("failed to read `{path}`: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to mount pack file `{path}`: {source}")]
+    Pack {
+        path: PathBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[error("failed to read pack entry `{entry}`: {source}")]
+    PackEntry {
+        entry: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[error("`{path}` is not valid UTF-8: {source}")]
+    Utf8 {
+        path: String,
+        #[source]
+        source: std::string::FromUtf8Error,
+    },
+
     /// An error occurred while using `steamlocate`.
     #[cfg(feature = "steam")]
     #[error("steamlocate error: {0}")]
@@ -30,4 +58,26 @@ pub enum FileSystemError {
     #[cfg(feature = "steam")]
     #[error("steam installation not found")]
     SteamNotFound,
+}
+
+impl FileSystemError {
+    pub(crate) fn pack(
+        path: PathBuf,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Pack {
+            path,
+            source: Box::new(source),
+        }
+    }
+
+    pub(crate) fn pack_entry(
+        entry: String,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::PackEntry {
+            entry,
+            source: Box::new(source),
+        }
+    }
 }
