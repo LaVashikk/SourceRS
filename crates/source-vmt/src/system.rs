@@ -78,7 +78,11 @@ impl<P: PackFile> MaterialSystem<P> {
             self.paths.insert(path_lower.clone(), file_path);
         }
 
-        if let Some(data) = self.fs.read_material_str(&path_lower, &self.search_path, self.prioritize_vpks) {
+        let data = self
+            .fs
+            .read_material_str(&path_lower, &self.search_path, self.prioritize_vpks)
+            .map_err(|error| crate::Error::Message(error.to_string()))?;
+        if let Some(data) = data {
             let vmt = Vmt::from_str(&data)?;
             let arc_vmt = Arc::new(vmt);
             self.cache.insert(path_lower, Arc::clone(&arc_vmt));
