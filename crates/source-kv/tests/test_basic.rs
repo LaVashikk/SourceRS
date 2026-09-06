@@ -105,3 +105,31 @@ fn test_root_map() {
     assert_eq!(map.get("key").unwrap(), "value");
 }
 
+#[test]
+fn test_backslash_keeps_utf8() {
+    // A backslash used to trigger a byte-wise slow path that mangled non-ASCII
+    // into Latin-1 and dropped a trailing slash.
+    let input = "root { \"msg\" \"путь C:\\dir\" \"quoted\" \"say \\\"привет\\\"\" }";
+    let mut de = Deserializer::from_str(input);
+    let root = de.parse_root().unwrap();
+    let obj = root.get("root").unwrap();
+
+    assert_eq!(obj.get_string("msg"), Some("путь C:\\dir"));
+    // An escaped quote must not terminate the string, and is kept verbatim.
+    assert_eq!(obj.get_string("quoted"), Some("say \\\"привет\\\""));
+}
+
+#[test]
+fn test_keys_keep_case_but_match_insensitively() {
+    let input = "root { \"bSnapToGrid\" \"1\" }";
+    let mut de = Deserializer::from_str(input);
+    let root = de.parse_root().unwrap();
+    let obj = root.get("root").unwrap();
+
+    // Stored verbatim...
+    assert!(obj.as_obj().unwrap().contains_key("bSnapToGrid"));
+    // ...but looked up case-insensitively, as the engine does.
+    assert_eq!(obj.get_string("bsnaptogrid"), Some("1"));
+    assert_eq!(obj.get_string("BSNAPTOGRID"), Some("1"));
+}
+

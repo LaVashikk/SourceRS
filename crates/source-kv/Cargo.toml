@@ -1,6 +1,6 @@
 [package]
 name = "source-kv"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 description = "A Serde serialization and deserialization library for Valve's Key-Value format."
 license = "MIT"

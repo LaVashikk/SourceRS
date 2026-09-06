@@ -50,14 +50,21 @@ impl Value {
     }
 
     /// A convenient method to get the FIRST value by key, if the current Value is an object.
-    /// Automatically accounts for case-insensitive keys in Source Engine (it is recommended to pass the key in lowercase).
+    /// Keys are matched case-insensitively, as they are in the Source Engine.
     pub fn get(&self, key: &str) -> Option<&Value> {
-        self.as_obj()?.get(key)?.first()
+        self.get_all(key)?.first()
     }
 
     /// Returns ALL values by key (since VDF allows duplicate keys).
+    /// Keys are matched case-insensitively, as they are in the Source Engine.
     pub fn get_all(&self, key: &str) -> Option<&Vec<Value>> {
-        self.as_obj()?.get(key)
+        let map = self.as_obj()?;
+        // Exact hit first; only fall back to a scan when the case differs.
+        map.get(key).or_else(|| {
+            map.iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                .map(|(_, v)| v)
+        })
     }
 
     /// A convenient shortcut: descends into an object by key and immediately tries to return a string.
@@ -124,7 +131,6 @@ impl<'de> Deserializer<'de> {
             self.cursor += 1;
             self.column += 1;
             let start = self.cursor;
-            let mut has_escapes = false;
 
             while self.cursor < bytes.len() {
                 let b = bytes[self.cursor];
@@ -132,27 +138,12 @@ impl<'de> Deserializer<'de> {
                     let end = self.cursor;
                     self.cursor += 1;
                     self.column += 1;
-                    if !has_escapes {
-                        return Ok(self.input[start..end].to_string());
-                    } else {
-                        // Slow path for escapes
-                        let mut s = String::with_capacity(end - start);
-                        let mut esc = false;
-                        for &byte in &bytes[start..end] {
-                            if esc {
-                                s.push('\\');
-                                s.push(byte as char);
-                                esc = false;
-                            } else if byte == b'\\' {
-                                esc = true;
-                            } else {
-                                s.push(byte as char);
-                            }
-                        }
-                        return Ok(s);
-                    }
-                } else if b == b'\\' {
-                    has_escapes = true;
+                    // Escapes are kept verbatim, so the whole span is the value.
+                    return Ok(self.input[start..end].to_string());
+                } else if b == b'\\' && self.cursor + 1 < bytes.len() {
+                    // A `\"` must not terminate the string. Skipping the escaped
+                    // byte may land mid-UTF-8, which is harmless: the loop only
+                    // compares bytes, and the returned slice is cut at the quote.
                     self.cursor += 2;
                     self.column += 2;
                 } else {
@@ -222,7 +213,7 @@ impl<'de> Deserializer<'de> {
                 }
                 None => return Err(self.error("Expected '}', found EOF")),
                 _ => {
-                    let key = self.parse_string()?.to_lowercase();
+                    let key = self.parse_string()?;
                     let value = self.parse_value()?;
                     map.entry(key).or_insert_with(|| Vec::with_capacity(1)).push(value);
                 }
