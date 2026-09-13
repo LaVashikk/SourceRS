@@ -1,5 +1,5 @@
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
-use vmf_forge::VmfFile;
+use source_vmf::VmfFile;
 
 // --- Benchmark Data ---
 // Load VMF content at compile time using include_str!.

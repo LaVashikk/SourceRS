@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```
-//! use vmf_forge::prelude::*;
+//! use source_vmf::prelude::*;
 //! use std::fs::File;
 //!
 //! fn main() -> Result<(), VmfError> {

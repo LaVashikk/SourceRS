@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use vmf_forge::prelude::*;
+use source_vmf::prelude::*;
 
 // Helper function to create a VmfFile with a predefined VisGroup hierarchy and objects
 fn create_test_vmf() -> VmfFile {

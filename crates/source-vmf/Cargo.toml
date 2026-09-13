@@ -1,15 +1,32 @@
 [package]
-name = "vmf-forge"
-version = "0.4.1"
-edition = "2024"
-authors = ["laVashik <contact@lavashik.lol>"]
+name = "source-vmf"
 description = "A parser for Valve Map Format (VMF) files"
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-vmf"
+documentation = "https://docs.rs/source-vmf"
 readme = "README.md"
-license = "MIT"
-repository = "https://github.com/IaVashik/vmf-forge"
-documentation = "https://docs.rs/vmf-forge"
 keywords = ["vmf", "valve", "map", "parser", "source"]
 categories = ["parser-implementations", "game-development"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+pest.workspace = true
+pest_derive.workspace = true
+indexmap.workspace = true
+derive_more.workspace = true
+thiserror.workspace = true
+serde = { workspace = true, optional = true }
+
+[build-dependencies]
+pest_generator.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+criterion.workspace = true
+iai-callgrind.workspace = true
 
 [[bench]]
 name = "vmf_parser_bench"
@@ -19,27 +36,7 @@ harness = false
 name = "parser_iai_bench"
 harness = false
 
-[dependencies]
-pest = "2.8.0"
-pest_derive = "2.8.0"
-indexmap = "2.8.0"
-derive_more = { version = "2.0.1", features = ["deref", "deref_mut", "into_iterator"] }
-thiserror = "2.0.12"
-serde = { version = "1.0.219", features = ["derive"], optional = true }
-
-[dev-dependencies]
-pretty_assertions = "1.4.1"
-criterion = { version = "0.5.1", features = ["html_reports"] }
-iai-callgrind = "0.14.0"
-
-[build-dependencies]
-pest_generator = "2.8.0"
-
-
 [features]
 default = []
 debug_assert_info = []
 serialization = ["dep:serde", "indexmap/serde"]
-
-# [lints.rust]
-# unused = { level = "allow", priority = -1 } # For exploratory dev.

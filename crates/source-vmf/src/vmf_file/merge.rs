@@ -18,7 +18,7 @@ impl VmfFile {
     /// # Example
     ///
     /// ```no_run
-    /// use vmf_forge::prelude::*;
+    /// use source_vmf::prelude::*;
     ///
     /// let mut vmf1 = VmfFile::open("map1.vmf").unwrap();
     /// let vmf2 = VmfFile::open("map2.vmf").unwrap();

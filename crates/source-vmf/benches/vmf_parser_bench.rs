@@ -1,6 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::{fs, time::Duration};
-use vmf_forge::VmfFile; // Adjust path if your library structure is different
+use source_vmf::VmfFile; 
 
 /// Helper function to load VMF content from a file path.
 /// Panics if the file cannot be read.

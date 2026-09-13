@@ -23,7 +23,7 @@ impl VmfFile {
     /// # Examples
     ///
     /// ```
-    /// use vmf_forge::VmfFile;
+    /// use source_vmf::VmfFile;
     ///
     /// let vmf_content = r#"
     /// versioninfo
@@ -56,7 +56,7 @@ impl VmfFile {
     /// # Examples
     ///
     /// ```no_run
-    /// use vmf_forge::VmfFile;
+    /// use source_vmf::VmfFile;
     /// use std::fs::File;
     ///
     /// let mut file = File::open("your_map.vmf").unwrap();
@@ -84,7 +84,7 @@ impl VmfFile {
     /// # Examples
     ///
     /// ```no_run
-    /// use vmf_forge::VmfFile;
+    /// use source_vmf::VmfFile;
     ///
     /// let vmf_file = VmfFile::open("your_map.vmf");
     /// assert!(vmf_file.is_ok());
@@ -114,7 +114,7 @@ impl VmfFile {
     /// # Examples
     ///
     /// ```no_run
-    /// use vmf_forge::VmfFile;
+    /// use source_vmf::VmfFile;
     ///
     /// let vmf_file = VmfFile::open("your_map.vmf").unwrap();
     /// let result = vmf_file.save("new_map.vmf");

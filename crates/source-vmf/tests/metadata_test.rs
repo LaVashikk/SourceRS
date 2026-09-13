@@ -2,10 +2,10 @@
 mod tests {
     use indexmap::IndexMap;
     use pretty_assertions::assert_eq;
-    use vmf_forge::VmfBlock;
-    use vmf_forge::VmfSerializable;
-    use vmf_forge::errors::VmfError;
-    use vmf_forge::vmf::metadata::*;
+    use source_vmf::VmfBlock;
+    use source_vmf::VmfSerializable;
+    use source_vmf::errors::VmfError;
+    use source_vmf::vmf::metadata::*;
 
     // Tests for VersionInfo
     #[test]

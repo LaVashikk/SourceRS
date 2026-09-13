@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use vmf_forge::VmfFile;
-    use vmf_forge::errors::VmfError;
+    use source_vmf::VmfFile;
+    use source_vmf::errors::VmfError;
 
     #[test]
     fn open_and_parse_valid_vmf() {

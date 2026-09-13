@@ -1,4 +1,4 @@
-//! A prelude module that re-exports commonly used items from the `vmf_forge` crate.
+//! A prelude module that re-exports commonly used items from the `source_vmf` crate.
 //!
 //! This module is intended to be used as a convenient way to import the most
 //! frequently used items from the crate, without having to specify the full path
@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```
-//! use vmf_forge::prelude::*;
+//! use source_vmf::prelude::*;
 //!
 //! // Now you can use VmfFile, VmfError, etc. without the need for crate::
 //! let vmf_file = VmfFile::open("your_map.vmf");

@@ -51,7 +51,7 @@ impl Entity {
     /// # Example
     ///
     /// ```
-    /// use vmf_forge::prelude::*;
+    /// use source_vmf::prelude::*;
     ///
     /// let entity = Entity::new("info_player_start", 1);
     /// assert_eq!(entity.classname(), Some("info_player_start"));
@@ -183,7 +183,7 @@ impl Entity {
     /// # Example
     ///
     /// ```
-    /// use vmf_forge::prelude::*;
+    /// use source_vmf::prelude::*;
     ///
     /// let mut entity = Entity::new("logic_relay", 1);
     /// entity.add_connection("OnTrigger", "my_door", "Open", "", 0.0, -1);
