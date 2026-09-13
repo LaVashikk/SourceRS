@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+# Lockstep: every crate in the monorepo ships under a single version
+[workspace.package]
+version = "0.5.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["LaVashikk <contact@lavashik.dev>"]
+repository = "https://github.com/LaVashikk/SourceRS"
+
+[workspace.dependencies]
+source-kv = { version = "0.5.0", path = "crates/source-kv" }
+source-fs = { version = "0.5.0", path = "crates/source-fs" }
+source-vpk = { version = "0.5.0", path = "crates/source-vpk" }
+source-vtf = { version = "0.5.0", path = "crates/source-vtf" }
+source-vmt = { version = "0.5.0", path = "crates/source-vmt" }
+source-vmf = { version = "0.5.0", path = "crates/source-vmf" }
+
+bitflags = "2.9"
+crc32fast = "1.5"
+dashmap = "5.5"
+derive_more = { version = "2.0", features = [
+    "deref",
+    "deref_mut",
+    "into_iterator",
+] }
+indexmap = "2.14"
+md-5 = "0.11"
+num_enum = "0.7"
+pest = "2.8"
+pest_derive = "2.8"
+pest_generator = "2.8"
+serde = { version = "1.0", features = ["derive"] }
+steamlocate = "2.1"
+thiserror = "2.0"
+
+criterion = { version = "0.5", features = ["html_reports"] }
+iai-callgrind = "0.14"
+pretty_assertions = "1.4"
+serde_derive = "1.0"
+tempfile = "3.23"

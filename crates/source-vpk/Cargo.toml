@@ -1,25 +1,25 @@
 [package]
 name = "source-vpk"
-version = "0.1.0"
-edition = "2024"
 description = "Fast, safe and ergonomic support for Source Engine VPK archives."
-license = "MIT"
-authors = ["LaVashikk <contact@lavashik.dev>"]
-repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-vpk"
 readme = "README.md"
 keywords = ["source-engine", "vpk", "archive", "gamedev"]
 categories = ["game-development", "filesystem"]
-rust-version = "1.85"
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-vpk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
-crc32fast = "1.5"
-indexmap = "2.14"
-md-5 = "0.11"
-serde = { version = "1.0", features = ["derive"], optional = true }
-thiserror = "2.0"
+crc32fast.workspace = true
+indexmap.workspace = true
+md-5.workspace = true
+thiserror.workspace = true
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile = "3.23"
+tempfile.workspace = true
 
 [features]
 default = []

@@ -1,23 +1,24 @@
 [package]
 name = "source-fs"
-version = "0.4.0"
-edition = "2024"
 description = "A virtual filesystem implementation for Source Engine games, handling gameinfo.txt search paths, VPK archives, and cross-platform file resolution."
-license = "MIT"
-authors = ["LaVashikk <contact@lavashik.dev>"]
-repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-fs"
 readme = "README.md"
 keywords = ["source-engine", "filesystem", "vpk", "gamedev"]
 categories = ["game-development", "filesystem"]
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-fs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
-source-vpk = "0.1.0"
-steamlocate = { version = "2.1.0", optional = true }
-thiserror = "2.0.18"
+source-vpk.workspace = true
+thiserror.workspace = true
+steamlocate = { workspace = true, optional = true }
 
 [dev-dependencies]
-crc32fast = "1.5"
-tempfile = "3.23"
+crc32fast.workspace = true
+tempfile.workspace = true
 
 [features]
 default = []
