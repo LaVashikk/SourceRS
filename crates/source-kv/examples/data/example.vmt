@@ -1,0 +1,9 @@
+LightmappedGeneric
+{
+	"$basetexture" "coast/shingle_01"
+	$surfaceprop gravel
+    $color "[1 0 0]"
+    $color2 "{0 100 255}"
+    // COMMENT
+    $color2 "{100 100 255}"
+}

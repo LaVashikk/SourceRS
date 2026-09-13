@@ -1,0 +1,31 @@
+[package]
+name = "source-vmt"
+version = "0.4.1"
+edition = "2024"
+description = "Rust parser and manager for Source Engine VMT files, supporting patch inheritance, material proxies, and key interning"
+license = "MIT"
+authors = ["LaVashikk <contact@lavashik.dev>"]
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-vmt"
+readme = "README.md"
+keywords = ["source-engine", "sdk", "gamedev"]
+categories = ["game-development"]
+
+[dependencies]
+source-kv = "0.4.2"
+source-fs = { version = "0.4.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+indexmap = { version = "2.2", features = ["serde"] }
+dashmap = { version = "5.5", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+# tempfile = "3.27.0"
+
+[[bench]]
+name = "vmt_bench"
+harness = false
+
+[features]
+default = []
+intern_keys = ["dep:dashmap"]
+material_system = ["dep:source-fs"]

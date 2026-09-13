@@ -1,0 +1,25 @@
+[package]
+name = "source-vtf"
+version = "0.1.0"
+edition = "2024"
+description = "Fast, safe and ergonomic support for Valve Texture Format files."
+license = "MIT"
+authors = ["LaVashikk <contact@lavashik.dev>"]
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-vtf"
+readme = "README.md"
+keywords = ["source-engine", "vtf", "texture", "gamedev"]
+categories = ["game-development", "multimedia::images"]
+rust-version = "1.85"
+
+[dependencies]
+bitflags = "2.9"
+num_enum = "0.7"
+serde = { version = "1.0", features = ["derive"], optional = true }
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[features]
+default = []
+serde = ["dep:serde", "bitflags/serde"]

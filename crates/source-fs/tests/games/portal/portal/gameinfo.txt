@@ -1,0 +1,31 @@
+"GameInfo"
+{
+	game		"Portal"
+	title 		"Portal"
+	type		singleplayer_only
+	nodifficulty	1
+	hasportals	1
+	FileSystem
+	{
+		SteamAppId				400
+		
+		SearchPaths
+		{
+			game+mod			portal/custom/*
+			game_lv				portal/portal_lv.vpk
+			game+mod			portal/portal_sound_vo_english.vpk
+			game+mod			portal/portal_pak.vpk
+			game				|all_source_engine_paths|hl2/hl2_textures.vpk
+			game				|all_source_engine_paths|hl2/hl2_sound_vo_english.vpk
+			game				|all_source_engine_paths|hl2/hl2_sound_misc.vpk
+			game				|all_source_engine_paths|hl2/hl2_misc.vpk
+			platform			|all_source_engine_paths|platform/platform_misc.vpk
+
+			mod+mod_write+default_write_path		|gameinfo_path|.
+			game+game_write		portal
+			gamebin				portal/bin
+			game				|all_source_engine_paths|hl2
+			platform			|all_source_engine_paths|platform
+		}
+	}
+}
