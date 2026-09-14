@@ -12,8 +12,8 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-source-vpk.workspace = true
 thiserror.workspace = true
+source-vpk = { workspace = true, optional = true }
 steamlocate = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -21,5 +21,10 @@ crc32fast.workspace = true
 tempfile.workspace = true
 
 [features]
-default = []
+default = ["vpk"]
+vpk = ["dep:source-vpk"]
 steam = ["dep:steamlocate"]
+
+[[test]]
+name = "vpk"
+required-features = ["vpk"]

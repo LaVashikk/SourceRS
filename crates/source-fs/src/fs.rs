@@ -3,14 +3,55 @@ use std::io::{Read, Seek, SeekFrom};
 
 use crate::{FileSystemError, GameInfoProvider, PackFile, utils};
 
+/// Options for [`FileSystem`] initialization
 #[derive(Debug, Clone, Default)]
 pub struct FileSystemOptions {
+    /// Subdirectory under `bin/` for platform binaries (e.g. `"win64"`, `"linux64"`)
     pub bin_platform: Option<String>,
+}
+
+/// Mounts all `*_dir.vpk` archives found in `dir` under `search` in deterministic order
+fn mount_dir_archives<P: PackFile>(
+    vpks: &mut HashMap<String, Vec<Arc<P>>>,
+    cache: &mut HashMap<PathBuf, Arc<P>>,
+    dir: &Path,
+    search: &str,
+) -> Result<(), FileSystemError> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
+
+    let mut archives: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.to_lowercase().ends_with("_dir.vpk"))
+        })
+        .collect();
+    archives.sort();
+
+    for path in archives {
+        let pack = match cache.get(&path) {
+            Some(p) => Arc::clone(p),
+            None => {
+                let opened = P::open(&path)
+                    .map_err(|error| FileSystemError::pack(path.clone(), error))?;
+                let Some(pack) = opened.map(Arc::new) else { continue };
+                cache.insert(path.clone(), Arc::clone(&pack));
+                pack
+            }
+        };
+        vpks.entry(search.to_string()).or_default().push(pack);
+    }
+
+    Ok(())
 }
 
 /// Core FileSystem representation holding physical directories and loaded pack files.
 #[derive(Debug)]
-pub struct FileSystem<P: PackFile> {
+pub struct FileSystem<P: PackFile = crate::DefaultPack> {
     root_path: PathBuf,
     search_path_dirs: HashMap<String, Vec<PathBuf>>,
     search_path_vpks: HashMap<String, Vec<Arc<P>>>,
@@ -97,6 +138,9 @@ impl<P: PackFile> FileSystem<P> {
             return Ok(fs);
         }
 
+        // Avoid reopening archives shared across multiple search paths
+        let mut pack_cache: HashMap<PathBuf, Arc<P>> = HashMap::new();
+
         for (i, (key, value)) in search_paths.into_iter().enumerate() {
             let searches: Vec<String> = key.to_lowercase()
                 .split('+')
@@ -166,6 +210,14 @@ impl<P: PackFile> FileSystem<P> {
                                 .entry(search.clone())
                                 .or_default()
                                 .push(PathBuf::from(&path));
+
+                            // Directory search paths in Source implicitly mount local VPK archives
+                            mount_dir_archives::<P>(
+                                &mut fs.search_path_vpks,
+                                &mut pack_cache,
+                                &test_path,
+                                search,
+                            )?;
 
                             // Automatically populate `gamebin` and `mod` depending on context
                             if search == "game" {

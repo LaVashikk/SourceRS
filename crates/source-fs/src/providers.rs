@@ -24,6 +24,7 @@ impl PackFile for DummyVpk {
     }
 }
 
+#[cfg(feature = "vpk")]
 impl PackFile for source_vpk::Vpk {
     type Error = source_vpk::Error;
     type Reader<'a> = source_vpk::EntryReader;
