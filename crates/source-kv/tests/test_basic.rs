@@ -133,3 +133,44 @@ fn test_keys_keep_case_but_match_insensitively() {
     assert_eq!(obj.get_string("BSNAPTOGRID"), Some("1"));
 }
 
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default)]
+struct PbrParams {
+    #[serde(rename = "$mraotexture")]
+    mrao: String,
+    #[serde(rename = "$uv_scale")]
+    uv_scale: f32,
+    #[serde(rename = "$metalnessscale")]
+    metalness: f32,
+}
+
+impl Default for PbrParams {
+    fn default() -> Self {
+        PbrParams { mrao: String::new(), uv_scale: 1.0, metalness: 1.0 }
+    }
+}
+
+#[test]
+fn struct_fields_match_keys_regardless_of_case() {
+    let input = r#"
+        "$MraoTexture" "pbr/concrete/concrete_floor_01_MRAO"
+        $UV_Scale 4
+        $MetalnessScale "0.67"
+    "#;
+    let p: PbrParams = from_str(input).unwrap();
+
+    assert_eq!(p.mrao, "pbr/concrete/concrete_floor_01_MRAO", "value case must be preserved");
+    assert_eq!(p.uv_scale, 4.0);
+    assert!((p.metalness - 0.67).abs() < 1e-6);
+}
+
+#[test]
+fn parsed_keys_keep_their_authored_case() {
+    let mut de = Deserializer::from_str(r#""$MraoTexture" "x""#);
+    let value: Value = de.parse_root().unwrap();
+
+    let map = value.as_obj().unwrap();
+    assert!(map.contains_key("$MraoTexture"), "stored key was rewritten: {:?}", map.keys().collect::<Vec<_>>());
+    assert_eq!(value.get_string("$mraotexture"), Some("x"));
+}

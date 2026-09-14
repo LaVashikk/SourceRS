@@ -476,13 +476,24 @@ struct KeyDeserializer<'a> {
     key: &'a str,
 }
 
+impl<'a> KeyDeserializer<'a> {
+    /// Returns the key in lowercase for case-insensitive serde field matching.
+    fn folded(&self) -> std::borrow::Cow<'a, str> {
+        if self.key.bytes().any(|b| b.is_ascii_uppercase()) {
+            std::borrow::Cow::Owned(self.key.to_ascii_lowercase())
+        } else {
+            std::borrow::Cow::Borrowed(self.key)
+        }
+    }
+}
+
 impl<'a, 'de> de::Deserializer<'de> for KeyDeserializer<'a> {
     type Error = Error;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
-    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(self.key) }
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(&self.folded()) }
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(&self.folded()) }
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(&self.folded()) }
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value> where V: Visitor<'de> { visitor.visit_str(&self.folded()) }
     fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::ExpectedKey) }
     fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::ExpectedKey) }
     fn deserialize_i16<V>(self, _visitor: V) -> Result<V::Value> where V: Visitor<'de> { Err(Error::ExpectedKey) }
