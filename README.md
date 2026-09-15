@@ -8,6 +8,10 @@
 ### `vmf-forge` is a Rust library for parsing, manipulating, and serializing Valve Map Format (VMF) files used in Source Engine games. 
 </div>
 
+> [!WARNING]  
+> This crate is deprecated. The actual and improved version is here: [Source-RS](https://github.com/LaVashikk/SourceRS)
+
+
 ## Features
 
 *   Parses VMF files into convenient Rust data structures.
