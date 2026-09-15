@@ -924,18 +924,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sourcers"
-version = "0.5.0"
-dependencies = [
- "source-fs",
- "source-kv",
- "source-vmf",
- "source-vmt",
- "source-vpk",
- "source-vtf",
-]
-
-[[package]]
 name = "steamlocate"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

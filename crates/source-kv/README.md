@@ -5,7 +5,7 @@ A straightforward, high-performance `serde` implementation for parsing and seria
 ## Key Features
 
 * **Full Serde Integration**: Seamlessly deserialize into custom Rust structs and serialize back using standard `#[derive(Deserialize, Serialize)]` attributes.
-* **Duplicate Key Support**: Valve's format heavily relies on duplicate keys (especially in `.vmf` files). `source-kv` natively handles this—just map repeated keys to a `Vec<T>`.
+* **Duplicate Key Support**: Valve's format heavily relies on duplicate keys (especially in `.vmf` files). `source-kv` natively handles this-just map repeated keys to a `Vec<T>`.
 * **Order Preservation**: Internally uses `IndexMap` to guarantee that the order of properties and blocks is preserved during serialization.
 * **Syntax Tolerance**: Safely handles unquoted keys, C-style line comments (`//`), and implicitly converts integer/boolean strings into native Rust types.
 * **Dynamic / Untyped API**: Don't want to write static structs? Parse files directly into a generic `source_kv::Value` (AST) and easily convert specific nodes to typed structs later using `from_value`.
@@ -112,10 +112,10 @@ fn main() -> Result<(), source_kv::Error> {
 
 ## API Overview
 
-- `source_kv::from_str` — Deserialize a KeyValues string directly into a typed struct `T`.
-- `source_kv::to_string` — Serialize a typed struct `T` back into KeyValues format.
-- `source_kv::Value` — An enum representing the AST (`Str` or `Obj`), offering ergonomic getters like `.get(key)` and `.get_string(key)`.
-- `source_kv::from_value` — Convert an existing AST `Value` node into a Serde-compatible struct `T`.
+- `source_kv::from_str` - Deserialize a KeyValues string directly into a typed struct `T`.
+- `source_kv::to_string` - Serialize a typed struct `T` back into KeyValues format.
+- `source_kv::Value` - An enum representing the AST (`Str` or `Obj`), offering ergonomic getters like `.get(key)` and `.get_string(key)`.
+- `source_kv::from_value` - Convert an existing AST `Value` node into a Serde-compatible struct `T`.
 
 ## License
 MIT License.

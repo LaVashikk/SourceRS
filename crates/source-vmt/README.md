@@ -15,8 +15,8 @@ Beyond basic parsing, `source-vmt` provides a complete material management ecosy
 
 ### Feature Flags
 
-* `material_system` — Enables the `MaterialSystem` and pulls in `source-fs` for virtual filesystem integration.
-* `intern_keys` — Enables key deduplication using `dashmap` wtih `Arc` to optimize memory usage.
+* `material_system` - Enables the `MaterialSystem` and pulls in `source-fs` for virtual filesystem integration.
+* `intern_keys` - Enables key deduplication using `dashmap` wtih `Arc` to optimize memory usage.
 
 ## Quick Start
 

@@ -16,7 +16,7 @@ It provides a strongly-typed representation of map geometry, entities, visgroups
 
 ### Feature Flags
 
-* `serialization` — Enables Serde `Serialize` and `Deserialize` implementations for VMF data structures.
+* `serialization` - Enables Serde `Serialize` and `Deserialize` implementations for VMF data structures.
 
 ## Quick Start
 
