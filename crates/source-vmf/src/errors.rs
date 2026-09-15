@@ -1,6 +1,5 @@
 //! This module defines the error types used in the VMF parser using `thiserror`.
 
-use pest::error::Error as PestError;
 use std::{io, num};
 use thiserror::Error;
 
@@ -11,9 +10,9 @@ pub enum VmfError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
 
-    /// A parsing error occurred during the Pest parsing phase.
+    /// A parsing error occurred during the KeyValues parsing phase.
     #[error("VMF parse error: {0}")]
-    Parse(#[from] Box<PestError<crate::parser::Rule>>),
+    Parse(#[from] source_kv::error::Error),
 
     /// The VMF structure or content is invalid or unexpected.
     #[error("Invalid VMF format: {0}")]

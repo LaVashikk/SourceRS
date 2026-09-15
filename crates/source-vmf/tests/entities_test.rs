@@ -4,7 +4,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use source_vmf::VmfBlock;
     use source_vmf::VmfSerializable;
-    use source_vmf::errors::VmfError;
+    use source_vmf::{FromBlock, ParseCtx};
     use source_vmf::vmf::common::Editor;
     use source_vmf::vmf::entities::*;
 
@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn entity_try_from_invalid_type() {
+    fn entity_with_unparsable_solid_id_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("classname".to_string(), "logic_relay".to_string());
         key_values.insert("targetname".to_string(), "abc".to_string());
@@ -89,11 +89,49 @@ mod tests {
             }],
         };
 
-        let result = Entity::try_from(block);
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        let mut ctx = ParseCtx::default();
+        let entity = Entity::from_block(block, &mut ctx);
+
+        assert_eq!(entity.classname(), Some("logic_relay"));
+        assert_eq!(entity.solids.as_ref().unwrap()[0].id, 0);
+        assert_eq!(ctx.warnings.len(), 1);
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
+    }
+
+    #[test]
+    fn entity_keeps_unknown_blocks() {
+        let block = VmfBlock {
+            name: "entity".to_string(),
+            key_values: IndexMap::new(),
+            blocks: vec![VmfBlock {
+                name: "plugin_data".to_string(),
+                key_values: {
+                    let mut map = IndexMap::new();
+                    map.insert("vendor".to_string(), "acme".to_string());
+                    map
+                },
+                blocks: vec![],
+            }],
+        };
+
+        let mut ctx = ParseCtx::default();
+        let entity = Entity::from_block(block, &mut ctx);
+
+        assert_eq!(entity.extra.blocks.len(), 1);
+        assert_eq!(entity.extra.blocks[0].name, "plugin_data");
+        assert!(entity.to_vmf_string(0).contains("plugin_data"));
+        assert!(ctx.warnings[0].contains("unexpected block 'plugin_data'"));
+    }
+
+    #[test]
+    fn short_connection_does_not_panic() {
+        let c = Connection::parse("OnTrigger".to_string(), "relay,Trigger");
+        assert_eq!(c.target, "relay");
+        assert_eq!(c.input, "Trigger");
+        assert_eq!(c.delay, 0.0);
+        assert_eq!(c.fire_limit, -1);
+
+        assert_eq!(Connection::parse("OnX".to_string(), "").target, "");
     }
 
     #[test] // todo: fuck u, IndexMap (unsorted)!
@@ -112,6 +150,7 @@ mod tests {
                 ..Default::default()
             },
             is_hidden: false,
+            extra: Default::default(),
         };
 
         let expected = "\
@@ -146,6 +185,7 @@ mod tests {
                 ..Default::default()
             },
             is_hidden: false,
+            extra: Default::default(),
         };
 
         let block: VmfBlock = entity.into();
@@ -342,14 +382,22 @@ mod tests {
             },
             connections: Some({
                 vec![
-                    (
-                        "OnTrigger".to_string(),
-                        "@exit_door instance:door_close_relay;Trigger  0 -1".to_string(),
-                    ),
-                    (
-                        "OnTrigger".to_string(),
-                        "door_checkmark Uncheck  0 -1".to_string(),
-                    ),
+                    Connection {
+                        output: "OnTrigger".to_string(),
+                        target: "@exit_door".to_string(),
+                        input: "instance:door_close_relay;Trigger".to_string(),
+                        params: "".to_string(),
+                        delay: 0.0,
+                        fire_limit: -1,
+                    },
+                    Connection {
+                        output: "OnTrigger".to_string(),
+                        target: "door_checkmark".to_string(),
+                        input: "Uncheck".to_string(),
+                        params: "".to_string(),
+                        delay: 0.0,
+                        fire_limit: -1,
+                    },
                 ]
             }),
             solids: None,
@@ -361,6 +409,7 @@ mod tests {
                 ..Default::default()
             },
             is_hidden: false,
+            extra: Default::default(),
         };
 
         let expected = "\
@@ -372,8 +421,8 @@ mod tests {
         \t\"origin\" \"304 416 64\"\n\
         \tconnections\n\
         \t{\n\
-        \t\t\"OnTrigger\" \"@exit_door instance:door_close_relay;Trigger  0 -1\"\n\
-        \t\t\"OnTrigger\" \"door_checkmark Uncheck  0 -1\"\n\
+        \t\t\"OnTrigger\" \"@exit_door\x1Binstance:door_close_relay;Trigger\x1B\x1B0\x1B-1\"\n\
+        \t\t\"OnTrigger\" \"door_checkmark\x1BUncheck\x1B\x1B0\x1B-1\"\n\
         \t}\n\
         \teditor\n\
         \t{\n\
@@ -487,17 +536,25 @@ mod tests {
         assert_eq!(connections.len(), 2);
         assert_eq!(
             connections[0],
-            (
-                "OnTrigger".to_string(),
-                "my_door\x1BOpen\x1B\x1B0\x1B-1".to_string()
-            )
+            Connection {
+                output: "OnTrigger".to_string(),
+                target: "my_door".to_string(),
+                input: "Open".to_string(),
+                params: "".to_string(),
+                delay: 0.0,
+                fire_limit: -1,
+            }
         );
         assert_eq!(
             connections[1],
-            (
-                "OnTrigger".to_string(),
-                "my_sound\x1BPlaySound\x1Bbang\x1B0.5\x1B1".to_string()
-            )
+            Connection {
+                output: "OnTrigger".to_string(),
+                target: "my_sound".to_string(),
+                input: "PlaySound".to_string(),
+                params: "bang".to_string(),
+                delay: 0.5,
+                fire_limit: 1,
+            }
         );
     }
 
@@ -506,9 +563,9 @@ mod tests {
         let mut entity = Entity::new("logic_relay", 1);
         entity.add_connection("OnTrigger", "my_door", "Open", "", 0.0, -1);
 
-        assert!(entity.has_connection("OnTrigger", "my_door\x1BOpen\x1B\x1B0\x1B-1"));
-        assert!(!entity.has_connection("OnTrigger", "my_door\x1BClose\x1B\x1B0\x1B-1"));
-        assert!(!entity.has_connection("OnStartTouch", "my_door\x1BOpen\x1B\x1B0\x1B-1"));
+        assert!(entity.has_connection("OnTrigger", "Open"));
+        assert!(!entity.has_connection("OnTrigger", "Close"));
+        assert!(!entity.has_connection("OnStartTouch", "Open"));
     }
 
     #[test]

@@ -3,7 +3,13 @@
 //! It also re-exports the submodules `common`, `entities`, `metadata`, `regions`, and `world`.
 
 pub mod common;
+pub mod connection;
 pub mod entities;
+pub mod file;
+pub mod index;
 pub mod metadata;
 pub mod regions;
 pub mod world;
+
+pub use file::VmfFile;
+pub use index::{EntId, EntityIndex};

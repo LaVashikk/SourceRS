@@ -13,15 +13,11 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-pest.workspace = true
-pest_derive.workspace = true
+source-kv.workspace = true
 indexmap.workspace = true
 derive_more.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, optional = true }
-
-[build-dependencies]
-pest_generator.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

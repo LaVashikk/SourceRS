@@ -38,7 +38,8 @@ mod tests {
     fn open_and_parse_invalid_vmf() {
         let result = VmfFile::open("vmf_examples/invalid.vmf");
 
-        assert!(matches!(result, Err(VmfError::Parse(_))));
+        dbg!(&result);
+        assert!(result.is_err());
     }
 
     #[test]

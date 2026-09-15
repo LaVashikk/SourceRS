@@ -1,7 +1,7 @@
 versioninfo
 {
 	"editorversion" "400"
-	"editorbuild" 8000 // value not in quotes
+	"editorbuild" "8000 // invalid quotes
 	"mapversion" "1"
 	"formatversion" "100"
 	"prefab" "0"

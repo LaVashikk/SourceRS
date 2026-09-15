@@ -2,15 +2,12 @@ use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::{fs, time::Duration};
 use source_vmf::VmfFile; 
 
-/// Helper function to load VMF content from a file path.
-/// Panics if the file cannot be read.
 fn load_vmf_content(path: &str) -> String {
     fs::read_to_string(path).expect("Failed to read VMF file for benchmarking")
 }
 
 /// Defines the benchmark suite for VMF parsing.
 fn benchmark_vmf_parsing(c: &mut Criterion) {
-    // --- Setup: Load VMF files ---
     let vmf_content_small = load_vmf_content("vmf_examples/valid.vmf");
     let vmf_content_large = load_vmf_content("vmf_examples/complex.vmf");
     #[allow(unused_variables)] // Used by the "Parse Super Large VMF" benchmark below

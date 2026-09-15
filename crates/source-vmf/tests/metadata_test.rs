@@ -4,7 +4,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use source_vmf::VmfBlock;
     use source_vmf::VmfSerializable;
-    use source_vmf::errors::VmfError;
+    use source_vmf::{FromBlock, ParseCtx};
     use source_vmf::vmf::metadata::*;
 
     // Tests for VersionInfo
@@ -33,7 +33,7 @@ mod tests {
     }
 
     #[test]
-    fn version_info_try_from_missing_key() {
+    fn version_info_missing_key_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("editorbuild".to_string(), "8000".to_string());
         key_values.insert("mapversion".to_string(), "1".to_string());
@@ -46,13 +46,17 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = VersionInfo::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let info = VersionInfo::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(info.editor_version, 0);
+        assert_eq!(info.editor_build, 8000);
+        assert_eq!(ctx.warnings.len(), 1);
+        assert!(ctx.warnings[0].contains("versioninfo: missing 'editorversion'"));
     }
 
     #[test]
-    fn version_info_try_from_invalid_type() {
+    fn version_info_invalid_type_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("editorversion".to_string(), "400".to_string());
         key_values.insert("editorbuild".to_string(), "abc".to_string());
@@ -66,12 +70,66 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = VersionInfo::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let info = VersionInfo::from_block(block, &mut ctx);
 
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        assert_eq!(info.editor_version, 400);
+        assert_eq!(info.editor_build, 0);
+        assert!(info.extra.is_empty());
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
+    }
+
+    #[test]
+    fn view_settings_survives_a_missing_bsnaptogrid() {
+        let mut key_values = IndexMap::new();
+        key_values.insert("bShowGrid".to_string(), "1".to_string());
+        key_values.insert("nGridSpacing".to_string(), "64".to_string());
+        key_values.insert("custom_plugin_key".to_string(), "42".to_string());
+
+        let block = VmfBlock {
+            name: "viewsettings".to_string(),
+            key_values,
+            blocks: Vec::new(),
+        };
+
+        let mut ctx = ParseCtx::default();
+        let settings = ViewSettings::from_block(block, &mut ctx);
+
+        assert_eq!(settings.snap_to_grid, ViewSettings::default().snap_to_grid);
+        assert!(settings.show_grid);
+        assert_eq!(settings.grid_spacing, 64);
+        assert!(
+            ctx.warnings
+                .iter()
+                .any(|w| w.contains("viewsettings: missing 'bSnapToGrid'"))
+        );
+
+        assert_eq!(
+            settings.extra.key_values.get("custom_plugin_key"),
+            Some(&"42".to_string())
+        );
+        assert!(settings.to_vmf_string(0).contains("custom_plugin_key"));
+    }
+
+    #[test]
+    fn view_settings_reads_keys_in_any_case() {
+        let mut key_values = IndexMap::new();
+        key_values.insert("BSNAPTOGRID".to_string(), "0".to_string());
+        key_values.insert("bshowgrid".to_string(), "1".to_string());
+
+        let block = VmfBlock {
+            name: "viewsettings".to_string(),
+            key_values,
+            blocks: Vec::new(),
+        };
+
+        let mut ctx = ParseCtx::default();
+        let settings = ViewSettings::from_block(block, &mut ctx);
+
+        assert!(!settings.snap_to_grid);
+        assert!(settings.show_grid);
+        assert!(!ctx.warnings.iter().any(|w| w.contains("bSnapToGrid")));
+        assert!(settings.extra.is_empty());
     }
 
     #[test]
@@ -82,6 +140,7 @@ mod tests {
             map_version: 1,
             format_version: 100,
             prefab: false,
+            extra: Default::default(),
         };
 
         let expected = "\
@@ -105,6 +164,7 @@ mod tests {
             map_version: 1,
             format_version: 100,
             prefab: false,
+            extra: Default::default(),
         };
 
         let block: VmfBlock = version_info.into();
@@ -134,28 +194,33 @@ mod tests {
             name: "Grandchild".to_string(),
             color: "0 0 255".to_string(),
             children: None,
+            extra: Default::default(),
         };
         let child1 = VisGroup {
             id: 2,
             name: "Child1".to_string(),
             color: "0 255 0".to_string(),
             children: Some(vec![grandchild]),
+            extra: Default::default(),
         };
         let parent1 = VisGroup {
             id: 1,
             name: "Parent".to_string(),
             color: "255 0 0".to_string(),
             children: Some(vec![child1]),
+            extra: Default::default(),
         };
         let parent2 = VisGroup {
             id: 3,
             name: "Parent2".to_string(),
             color: "255 255 0".to_string(),
             children: None,
+            extra: Default::default(),
         };
 
         VisGroups {
             groups: vec![parent1, parent2],
+            extra: Default::default(),
         }
     }
 

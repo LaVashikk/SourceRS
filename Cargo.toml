@@ -30,9 +30,6 @@ derive_more = { version = "2.0", features = [
 indexmap = "2.14"
 md-5 = "0.11"
 num_enum = "0.7"
-pest = "2.8"
-pest_derive = "2.8"
-pest_generator = "2.8"
 serde = { version = "1.0", features = ["derive"] }
 steamlocate = "2.1"
 thiserror = "2.0"

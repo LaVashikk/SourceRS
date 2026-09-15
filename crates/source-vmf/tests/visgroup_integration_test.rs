@@ -16,52 +16,57 @@ fn create_test_vmf() -> VmfFile {
         name: "Grandchild".to_string(),
         color: "0 0 255".to_string(),
         children: None,
+        extra: Default::default(),
     };
     let child1 = VisGroup {
         id: 2,
         name: "Child1".to_string(),
         color: "0 255 0".to_string(),
         children: Some(vec![grandchild]),
+        extra: Default::default(),
     };
     let parent1 = VisGroup {
         id: 1,
         name: "Parent".to_string(),
         color: "255 0 0".to_string(),
         children: Some(vec![child1]),
+        extra: Default::default(),
     };
     let parent2 = VisGroup {
         id: 3,
         name: "Parent2".to_string(),
         color: "255 255 0".to_string(),
         children: None,
+        extra: Default::default(),
     };
     let other = VisGroup {
         id: 5,
         name: "Other".to_string(),
         color: "0 255 255".to_string(),
         children: None,
+        extra: Default::default(),
     };
 
     vmf.visgroups.groups = vec![parent1, parent2, other];
 
     // --- Entities ---
     let mut ent_no_group = Entity::new("ent_no_group", 100);
-    ent_no_group.editor.visgroup_id = None; // Explicitly None
+    ent_no_group.editor.visgroup_ids = vec![]; // Explicitly None
 
     let mut ent_parent = Entity::new("ent_parent", 101);
-    ent_parent.editor.visgroup_id = Some(1);
+    ent_parent.editor.visgroup_ids = vec![1];
 
     let mut ent_child1 = Entity::new("ent_child1", 102);
-    ent_child1.editor.visgroup_id = Some(2);
+    ent_child1.editor.visgroup_ids = vec![2];
 
     let mut ent_grandchild = Entity::new("ent_grandchild", 104);
-    ent_grandchild.editor.visgroup_id = Some(4);
+    ent_grandchild.editor.visgroup_ids = vec![4];
 
     let mut ent_other = Entity::new("ent_other", 105);
-    ent_other.editor.visgroup_id = Some(5);
+    ent_other.editor.visgroup_ids = vec![5];
 
     let mut hidden_ent_parent = Entity::new("hidden_ent_parent", 201);
-    hidden_ent_parent.editor.visgroup_id = Some(1);
+    hidden_ent_parent.editor.visgroup_ids = vec![1];
     hidden_ent_parent.is_hidden = true; // Mark as conceptually hidden
 
     vmf.entities.push(ent_no_group);
@@ -76,27 +81,27 @@ fn create_test_vmf() -> VmfFile {
         id: 500,
         ..Default::default()
     };
-    solid_no_group.editor.visgroup_id = None;
+    solid_no_group.editor.visgroup_ids = vec![];
 
     let mut solid_parent = Solid {
         id: 501,
         ..Default::default()
     };
-    solid_parent.editor.visgroup_id = Some(1);
+    solid_parent.editor.visgroup_ids = vec![1];
     solid_parent.editor.color = "255 0 0".to_string(); // For mut test
 
     let mut solid_child1 = Solid {
         id: 502,
         ..Default::default()
     };
-    solid_child1.editor.visgroup_id = Some(2);
+    solid_child1.editor.visgroup_ids = vec![2];
     solid_child1.editor.color = "0 255 0".to_string(); // For mut test
 
     let mut hidden_solid_child1 = Solid {
         id: 602,
         ..Default::default()
     };
-    hidden_solid_child1.editor.visgroup_id = Some(2);
+    hidden_solid_child1.editor.visgroup_ids = vec![2];
 
     vmf.world.solids.push(solid_no_group);
     vmf.world.solids.push(solid_parent);

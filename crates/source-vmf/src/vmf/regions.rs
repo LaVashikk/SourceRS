@@ -5,11 +5,11 @@ use indexmap::IndexMap;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{To01String, get_key_ref, take_and_parse_key, take_key_owned};
-use crate::{
-    VmfBlock, VmfSerializable,
-    errors::{VmfError, VmfResult},
-};
+use crate::parse_ctx::{FromBlock, ParseCtx, impl_try_from_block};
+use crate::utils::{To01String, take_bool, take_key, take_parse, take_str};
+use crate::{Extras, VmfBlock, VmfSerializable};
+
+impl_try_from_block!(Cameras, Camera, Cordons, Cordon);
 
 /// Represents the camera data in a VMF file.
 #[derive(Debug, Default, Clone, PartialEq, Deref, DerefMut)]
@@ -21,21 +21,39 @@ pub struct Cameras {
     #[deref]
     #[deref_mut]
     pub cams: Vec<Camera>,
+    /// Keys and blocks this struct does not model.
+    #[cfg_attr(feature = "serialization", serde(default, skip_serializing_if = "Extras::is_empty"))]
+    pub extra: Extras,
 }
 
-impl TryFrom<VmfBlock> for Cameras {
-    type Error = VmfError;
-
-    fn try_from(mut block: VmfBlock) -> VmfResult<Self> {
+impl FromBlock for Cameras {
+    fn from_block(mut block: VmfBlock, ctx: &mut ParseCtx) -> Self {
+        ctx.enter("cameras");
         let mut cams = Vec::with_capacity(block.blocks.len());
-        for group in block.blocks {
-            cams.push(Camera::try_from(group)?);
+        let mut unknown = Vec::new();
+
+        for (index, group) in block.blocks.drain(..).enumerate() {
+            if group.name.eq_ignore_ascii_case("camera") {
+                ctx.enter_indexed("camera", index);
+                cams.push(Camera::from_block(group, ctx));
+                ctx.leave();
+            } else {
+                ctx.warn(format!("unexpected block '{}', kept as-is", group.name));
+                unknown.push(group);
+            }
         }
 
-        Ok(Self {
-            active: take_and_parse_key::<i8>(&mut block.key_values, "activecamera")?,
+        let kv = &mut block.key_values;
+        let cameras = Self {
+            active: take_parse(kv, "activecamera", -1, ctx),
             cams,
-        })
+            extra: Extras {
+                key_values: std::mem::take(kv),
+                blocks: unknown,
+            },
+        };
+        ctx.leave();
+        cameras
     }
 }
 
@@ -47,8 +65,11 @@ impl From<Cameras> for VmfBlock {
             blocks.push(cam.into());
         }
 
+        blocks.extend(val.extra.blocks);
+
         let mut key_values = IndexMap::new();
-        key_values.insert("active".to_string(), val.active.to_string());
+        key_values.insert("activecamera".to_string(), val.active.to_string());
+        key_values.extend(val.extra.key_values);
 
         VmfBlock {
             name: "cameras".to_string(),
@@ -68,6 +89,7 @@ impl VmfSerializable for Cameras {
             "{}\t\"activecamera\" \"{}\"\n",
             indent, self.active
         ));
+        self.extra.write_key_values(&mut output, indent_level + 1);
 
         for cam in &self.cams {
             output.push_str(&format!("{0}\tcamera\n{0}\t{{\n", indent));
@@ -76,8 +98,11 @@ impl VmfSerializable for Cameras {
                 indent, cam.position
             ));
             output.push_str(&format!("{}\t\t\"look\" \"{}\"\n", indent, cam.look));
+            cam.extra.write_key_values(&mut output, indent_level + 2);
+            cam.extra.write_blocks(&mut output, indent_level + 2);
             output.push_str(&format!("{}\t}}\n", indent));
         }
+        self.extra.write_blocks(&mut output, indent_level + 1);
 
         output.push_str(&format!("{}}}\n", indent));
         output
@@ -92,17 +117,23 @@ pub struct Camera {
     pub position: String, // vertex
     /// The point at which the camera is looking, in the VMF coordinate system.
     pub look: String, // vertex
+    /// Keys and blocks this struct does not model.
+    #[cfg_attr(feature = "serialization", serde(default, skip_serializing_if = "Extras::is_empty"))]
+    pub extra: Extras,
 }
 
-impl TryFrom<VmfBlock> for Camera {
-    type Error = VmfError;
-
-    fn try_from(mut block: VmfBlock) -> VmfResult<Self> {
+impl FromBlock for Camera {
+    fn from_block(mut block: VmfBlock, ctx: &mut ParseCtx) -> Self {
+        let blocks = std::mem::take(&mut block.blocks);
         let kv = &mut block.key_values;
-        Ok(Self {
-            position: take_key_owned(kv, "position")?,
-            look: take_key_owned(kv, "look")?,
-        })
+        Self {
+            position: take_str(kv, "position", "0 0 0", ctx),
+            look: take_str(kv, "look", "0 0 0", ctx),
+            extra: Extras {
+                key_values: std::mem::take(kv),
+                blocks,
+            },
+        }
     }
 }
 
@@ -111,11 +142,12 @@ impl From<Camera> for VmfBlock {
         let mut key_values = IndexMap::new();
         key_values.insert("position".to_string(), val.position);
         key_values.insert("look".to_string(), val.look);
+        key_values.extend(val.extra.key_values);
 
         VmfBlock {
             name: "camera".to_string(),
             key_values,
-            ..Default::default()
+            blocks: val.extra.blocks,
         }
     }
 }
@@ -130,21 +162,39 @@ pub struct Cordons {
     #[deref]
     #[deref_mut]
     pub cordons: Vec<Cordon>,
+    /// Keys and blocks this struct does not model.
+    #[cfg_attr(feature = "serialization", serde(default, skip_serializing_if = "Extras::is_empty"))]
+    pub extra: Extras,
 }
 
-impl TryFrom<VmfBlock> for Cordons {
-    type Error = VmfError;
-
-    fn try_from(mut block: VmfBlock) -> VmfResult<Self> {
+impl FromBlock for Cordons {
+    fn from_block(mut block: VmfBlock, ctx: &mut ParseCtx) -> Self {
+        ctx.enter("cordons");
         let mut cordons = Vec::with_capacity(block.blocks.len());
-        for group in block.blocks {
-            cordons.push(Cordon::try_from(group)?);
+        let mut unknown = Vec::new();
+
+        for (index, group) in block.blocks.drain(..).enumerate() {
+            if group.name.eq_ignore_ascii_case("cordon") {
+                ctx.enter_indexed("cordon", index);
+                cordons.push(Cordon::from_block(group, ctx));
+                ctx.leave();
+            } else {
+                ctx.warn(format!("unexpected block '{}', kept as-is", group.name));
+                unknown.push(group);
+            }
         }
 
-        Ok(Self {
-            active: take_and_parse_key::<i8>(&mut block.key_values, "active")?,
+        let kv = &mut block.key_values;
+        let result = Self {
+            active: take_parse(kv, "active", 0, ctx),
             cordons,
-        })
+            extra: Extras {
+                key_values: std::mem::take(kv),
+                blocks: unknown,
+            },
+        };
+        ctx.leave();
+        result
     }
 }
 
@@ -156,10 +206,12 @@ impl From<Cordons> for VmfBlock {
         for cordon in val.cordons {
             blocks.push(cordon.into());
         }
+        blocks.extend(val.extra.blocks);
 
         // Creates a VmfBlock for Cordons
         let mut key_values = IndexMap::new();
         key_values.insert("active".to_string(), val.active.to_string());
+        key_values.extend(val.extra.key_values);
 
         VmfBlock {
             name: "cordons".to_string(),
@@ -177,11 +229,13 @@ impl VmfSerializable for Cordons {
         // Start of Cordons block
         output.push_str(&format!("{0}cordons\n{0}{{\n", indent));
         output.push_str(&format!("{}\t\"active\" \"{}\"\n", indent, self.active));
+        self.extra.write_key_values(&mut output, indent_level + 1);
 
         // Iterates through all Cordons and adds their string representation
         for cordon in &self.cordons {
             output.push_str(&cordon.to_vmf_string(indent_level + 1));
         }
+        self.extra.write_blocks(&mut output, indent_level + 1);
 
         output.push_str(&format!("{}}}\n", indent));
 
@@ -201,59 +255,45 @@ pub struct Cordon {
     pub min: String, // vertex
     /// The maximum point of the cordon's bounding box.
     pub max: String, // vertex
+    /// Keys and blocks this struct does not model.
+    #[cfg_attr(feature = "serialization", serde(default, skip_serializing_if = "Extras::is_empty"))]
+    pub extra: Extras,
 }
 
-impl TryFrom<VmfBlock> for Cordon {
-    type Error = VmfError;
+impl FromBlock for Cordon {
+    fn from_block(mut block: VmfBlock, ctx: &mut ParseCtx) -> Self {
+        // Mins/maxs reside in a 'box' sub-block in newer VMFs, or directly on cordon in older ones.
+        let from_box = block.blocks.first_mut().and_then(|sub_block| {
+            let min = take_key(&mut sub_block.key_values, "mins");
+            let max = take_key(&mut sub_block.key_values, "maxs");
+            min.zip(max)
+        });
 
-    fn try_from(mut block: VmfBlock) -> VmfResult<Self> {
-        // Attempt #1: Try to take ownership of "mins" and "maxs" from the first sub-block.
-        let sub_block_result: Option<(String, String)> =
-            block.blocks.get_mut(0).and_then(|sub_block| {
-                // Try removing both keys using swap_remove (O(1)) and zip the Options.
-                // zip returns Some only if *both* removals were successful.
-                let maybe_min = sub_block.key_values.swap_remove("mins");
-                let maybe_max = sub_block.key_values.swap_remove("maxs");
-                maybe_min.zip(maybe_max)
-            });
+        // Drop empty 'box' block so it is not preserved in extras.
+        block
+            .blocks
+            .retain(|b| !(b.name.eq_ignore_ascii_case("box") && b.key_values.is_empty()));
+        let blocks = std::mem::take(&mut block.blocks);
 
-        // Decide where the final values come from
-        let (min_string, max_string) = match sub_block_result {
-            // Case 1: Successfully got both from the sub-block
-            Some((min_val, max_val)) => Ok((min_val, max_val)),
-            // Case 2: Failed to get both from sub-block (it didn't exist, or lacked one/both keys)
-            None => {
-                // Attempt #2: Take ownership from the parent block's key_values
-                let min_res = take_key_owned(&mut block.key_values, "mins").map_err(|_| {
-                    VmfError::InvalidFormat(
-                        "Missing 'mins' key in Cordon block or its 'box' sub-block".to_string(),
-                    )
-                });
-                let max_res = take_key_owned(&mut block.key_values, "maxs").map_err(|_| {
-                    VmfError::InvalidFormat(
-                        "Missing 'maxs' key in Cordon block or its 'box' sub-block".to_string(),
-                    )
-                });
+        let kv = &mut block.key_values;
+        let (min, max) = match from_box {
+            Some(pair) => pair,
+            None => (
+                take_str(kv, "mins", "0 0 0", ctx),
+                take_str(kv, "maxs", "0 0 0", ctx),
+            ),
+        };
 
-                // Combine results, returning the first error encountered if any
-                match (min_res, max_res) {
-                    (Ok(min), Ok(max)) => Ok((min, max)),
-                    (Err(e), _) => Err(e),
-                    (_, Err(e)) => Err(e),
-                }
-            }
-        }?;
-
-        // Take ownership of 'name' and check 'active' from the parent block
-        let name = take_key_owned(&mut block.key_values, "name")?;
-        let active = get_key_ref(&block.key_values, "active")? == "1";
-
-        Ok(Self {
-            name,
-            active,
-            min: min_string,
-            max: max_string,
-        })
+        Self {
+            name: take_str(kv, "name", "cordon", ctx),
+            active: take_bool(kv, "active", false, ctx),
+            min,
+            max,
+            extra: Extras {
+                key_values: std::mem::take(kv),
+                blocks,
+            },
+        }
     }
 }
 
@@ -263,6 +303,7 @@ impl From<Cordon> for VmfBlock {
         let mut key_values = IndexMap::new();
         key_values.insert("name".to_string(), val.name);
         key_values.insert("active".to_string(), val.active.to_01_string());
+        key_values.extend(val.extra.key_values);
 
         // Creates a block for the box with `mins/maxs`
         let mut box_block_key_values = IndexMap::new();
@@ -277,10 +318,13 @@ impl From<Cordon> for VmfBlock {
         };
 
         // Creates the main VmfBlock for Cordon
+        let mut blocks = vec![box_block];
+        blocks.extend(val.extra.blocks);
+
         VmfBlock {
             name: "cordon".to_string(),
             key_values,
-            blocks: vec![box_block],
+            blocks,
         }
     }
 }
@@ -298,12 +342,14 @@ impl VmfSerializable for Cordon {
             indent,
             self.active.to_01_string()
         ));
+        self.extra.write_key_values(&mut output, indent_level + 1);
 
         // Adds a nested block with coordinates
-        output.push_str(&format!("{0}\tbox\n{}\t{{\n", indent));
+        output.push_str(&format!("{0}\tbox\n{0}\t{{\n", indent));
         output.push_str(&format!("{}\t\t\"mins\" \"{}\"\n", indent, self.min));
         output.push_str(&format!("{}\t\t\"maxs\" \"{}\"\n", indent, self.max));
         output.push_str(&format!("{}\t}}\n", indent)); // end of `box``
+        self.extra.write_blocks(&mut output, indent_level + 1);
 
         // End of Cordon block
         output.push_str(&format!("{}}}\n", indent));

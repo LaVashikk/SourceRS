@@ -4,7 +4,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use source_vmf::VmfBlock;
     use source_vmf::VmfSerializable;
-    use source_vmf::errors::VmfError;
+    use source_vmf::{FromBlock, ParseCtx};
     use source_vmf::vmf::regions::*;
 
     // Tests for Cameras
@@ -54,20 +54,22 @@ mod tests {
     }
 
     #[test]
-    fn cameras_try_from_missing_key() {
+    fn cameras_missing_key_defaults_and_warns() {
         let block = VmfBlock {
             name: "cameras".to_string(),
             key_values: IndexMap::new(),
             blocks: Vec::new(),
         };
 
-        let result = Cameras::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let cameras = Cameras::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(cameras.active, -1);
+        assert!(ctx.warnings[0].contains("cameras: missing 'activecamera'"));
     }
 
     #[test]
-    fn cameras_try_from_invalid_type() {
+    fn cameras_invalid_type_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("activecamera".to_string(), "abc".to_string());
 
@@ -77,11 +79,11 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = Cameras::try_from(block);
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        let mut ctx = ParseCtx::default();
+        let cameras = Cameras::from_block(block, &mut ctx);
+
+        assert_eq!(cameras.active, -1);
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
     }
 
     #[test]
@@ -92,17 +94,20 @@ mod tests {
                 Camera {
                     position: "0 0 0".to_string(),
                     look: "1 0 0".to_string(),
+                    extra: Default::default(),
                 },
                 Camera {
                     position: "0 1 0".to_string(),
                     look: "0 1 0".to_string(),
+                    extra: Default::default(),
                 },
             ],
+            extra: Default::default(),
         };
         let block: VmfBlock = cameras.into();
 
         assert_eq!(block.name, "cameras");
-        assert_eq!(block.key_values.get("active"), Some(&"1".to_string()));
+        assert_eq!(block.key_values.get("activecamera"), Some(&"1".to_string()));
         assert_eq!(block.blocks.len(), 2);
     }
 
@@ -126,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn camera_try_from_missing_key() {
+    fn camera_missing_key_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("look".to_string(), "1 0 0".to_string());
 
@@ -136,9 +141,12 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = Camera::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let camera = Camera::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(camera.position, "0 0 0");
+        assert_eq!(camera.look, "1 0 0");
+        assert!(ctx.warnings[0].contains("missing 'position'"));
     }
 
     // Tests for Cordons
@@ -211,20 +219,22 @@ mod tests {
     }
 
     #[test]
-    fn cordons_try_from_missing_key() {
+    fn cordons_missing_key_defaults_and_warns() {
         let block = VmfBlock {
             name: "cordons".to_string(),
             key_values: IndexMap::new(),
             blocks: Vec::new(),
         };
 
-        let result = Cordons::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let cordons = Cordons::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(cordons.active, 0);
+        assert!(ctx.warnings[0].contains("cordons: missing 'active'"));
     }
 
     #[test]
-    fn cordons_try_from_invalid_type() {
+    fn cordons_invalid_type_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("active".to_string(), "abc".to_string());
 
@@ -234,11 +244,11 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = Cordons::try_from(block);
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        let mut ctx = ParseCtx::default();
+        let cordons = Cordons::from_block(block, &mut ctx);
+
+        assert_eq!(cordons.active, 0);
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
     }
 
     #[test]
@@ -251,14 +261,17 @@ mod tests {
                     active: true,
                     min: "0 0 0".to_string(),
                     max: "1 1 1".to_string(),
+                    extra: Default::default(),
                 },
                 Cordon {
                     name: "test_cordon_2".to_string(),
                     active: false,
                     min: "2 2 2".to_string(),
                     max: "3 3 3".to_string(),
+                    extra: Default::default(),
                 },
             ],
+            extra: Default::default(),
         };
         let expected = "\
         cordons\n\
@@ -299,14 +312,17 @@ mod tests {
                     active: true,
                     min: "0 0 0".to_string(),
                     max: "1 1 1".to_string(),
+                    extra: Default::default(),
                 },
                 Cordon {
                     name: "test_cordon_2".to_string(),
                     active: false,
                     min: "2 2 2".to_string(),
                     max: "3 3 3".to_string(),
+                    extra: Default::default(),
                 },
             ],
+            extra: Default::default(),
         };
         let block: VmfBlock = cordons.into();
 
@@ -346,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn cordon_try_from_missing_box_block() {
+    fn cordon_missing_box_block_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("name".to_string(), "test_cordon".to_string());
         key_values.insert("active".to_string(), "1".to_string());
@@ -357,13 +373,18 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = Cordon::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let cordon = Cordon::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(cordon.name, "test_cordon");
+        assert!(cordon.active);
+        assert_eq!(cordon.min, "0 0 0");
+        assert_eq!(cordon.max, "0 0 0");
+        assert_eq!(ctx.warnings.len(), 2); // mins and maxs
     }
 
     #[test]
-    fn cordon_try_from_missing_key() {
+    fn cordon_reads_bounds_from_box_and_warns_on_missing_name() {
         let mut key_values = IndexMap::new();
         key_values.insert("name".to_string(), "test_cordon".to_string());
 
@@ -382,9 +403,15 @@ mod tests {
             }],
         };
 
-        let result = Cordon::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let cordon = Cordon::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(cordon.min, "0 0 0");
+        assert_eq!(cordon.max, "1 1 1");
+        assert!(!cordon.active);
+        assert!(cordon.extra.is_empty());
+        assert_eq!(ctx.warnings.len(), 1);
+        assert!(ctx.warnings[0].contains("missing 'active'"));
     }
 
     #[test]
@@ -394,6 +421,7 @@ mod tests {
             active: true,
             min: "0 0 0".to_string(),
             max: "1 1 1".to_string(),
+            extra: Default::default(),
         };
         let expected = "\
         cordon\n\
@@ -416,6 +444,7 @@ mod tests {
             active: true,
             min: "0 0 0".to_string(),
             max: "1 1 1".to_string(),
+            extra: Default::default(),
         };
         let block: VmfBlock = cordon.into();
         assert_eq!(block.name, "cordon");

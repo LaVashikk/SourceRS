@@ -1,21 +1,12 @@
-//! This module provides the VMF parser implementation using the `pest` parsing library.
+//! This module provides the VMF parser implementation using the `source-kv` library.
 
 use indexmap::IndexMap;
-use pest::Parser;
-use pest::iterators::Pair;
-use pest_derive::Parser;
-use std::mem;
 
-use crate::errors::{VmfError, VmfResult};
-
+use crate::errors::VmfResult;
+use crate::parse_ctx::{FromBlock, ParseCtx};
 use crate::VmfBlock;
 use crate::prelude::{Cameras, Entity, VersionInfo, ViewSettings, VisGroups, VmfFile, World};
 use crate::vmf::regions::{Cordon, Cordons};
-
-/// The VMF parser.
-#[derive(Parser)]
-#[grammar = "vmf.pest"]
-struct VmfParser;
 
 /// Parses a VMF string into a `VmfFile` struct.
 ///
@@ -27,171 +18,188 @@ struct VmfParser;
 ///
 /// A `VmfResult` containing the parsed `VmfFile` or a `VmfError` if parsing fails.
 pub fn parse_vmf(input: &str) -> VmfResult<VmfFile> {
-    let parsed = VmfParser::parse(Rule::file, input)
-        .map_err(|e| VmfError::Parse(Box::new(e)))?
-        .next()
-        .unwrap(); // ok_or_else(|| VmfError::InvalidFormat("Input string did not contain a valid VMF file structure.".to_string()))?
+    let mut deserializer = source_kv::de::Deserializer::from_str(input);
+    let root = deserializer.parse_root()?;
+
     let mut vmf_file = VmfFile::default();
+    let mut ctx = ParseCtx::default();
 
-    for pair in parsed.into_inner() {
-        if pair.as_rule() == Rule::block {
-            let block: VmfBlock = parse_block(pair)?;
+    if let source_kv::de::Value::Obj(map) = root {
+        for (name, values) in map {
+            for value in values {
+                let block = value_to_vmf_block(name.clone(), value);
+                // Block names are case-insensitive, like every other KeyValues name.
+                let kind = block.name.to_ascii_lowercase();
+                match kind.as_str() {
+                    // -- metadatas
+                    "versioninfo" => vmf_file.versioninfo = VersionInfo::from_block(block, &mut ctx),
+                    "visgroups" => vmf_file.visgroups = VisGroups::from_block(block, &mut ctx),
+                    "viewsettings" => vmf_file.viewsettings = ViewSettings::from_block(block, &mut ctx),
 
-            match block.name.to_lowercase().as_str() {
-                // -- metadatas
-                "versioninfo" => vmf_file.versioninfo = VersionInfo::try_from(block)?,
-                "visgroups" => vmf_file.visgroups = VisGroups::try_from(block)?,
-                "viewsettings" => vmf_file.viewsettings = ViewSettings::try_from(block)?,
+                    // world
+                    "world" => vmf_file.world = World::from_block(block, &mut ctx),
 
-                // world
-                "world" => vmf_file.world = World::try_from(block)?,
-
-                // -- entities
-                "entity" => vmf_file.entities.push(Entity::try_from(block)?),
-                "hidden" => {
-                    let mut blocks = block.blocks;
-                    if !blocks.is_empty() {
-                        // Take the first block out of the vector to avoid cloning
-                        let first_block = mem::take(&mut blocks[0]);
-                        let mut ent = Entity::try_from(first_block)?;
-                        ent.is_hidden = true;
-                        vmf_file.hiddens.push(ent)
+                    // -- entities
+                    "entity" => {
+                        ctx.enter_indexed("entity", vmf_file.entities.len());
+                        let ent = Entity::from_block(block, &mut ctx);
+                        ctx.leave();
+                        vmf_file.entities.push(ent);
                     }
-                }
+                    "hidden" => {
+                        // Read all entities enclosed in the hidden block
+                        for inner in block.blocks {
+                            ctx.enter_indexed("hidden", vmf_file.hiddens.len());
+                            let mut ent = Entity::from_block(inner, &mut ctx);
+                            ctx.leave();
+                            ent.is_hidden = true;
+                            vmf_file.hiddens.push(ent)
+                        }
+                    }
 
-                // -- regions
-                "cameras" => vmf_file.cameras = Cameras::try_from(block)?,
-                "cordons" => vmf_file.cordons = Cordons::try_from(block)?,
-                // for old version of VMF
-                "cordon" => vmf_file.cordons.push(Cordon::try_from(block)?),
-                // ....
-                _ => {
-                    #[cfg(feature = "debug_assert_info")]
-                    debug_assert!(false, "Unexpected block name: {}", block.name);
+                    // -- regions
+                    "cameras" => vmf_file.cameras = Cameras::from_block(block, &mut ctx),
+                    "cordons" => vmf_file.cordons = Cordons::from_block(block, &mut ctx),
+                    // for old version of VMF
+                    "cordon" => {
+                        ctx.enter("cordon");
+                        let cordon = Cordon::from_block(block, &mut ctx);
+                        ctx.leave();
+                        vmf_file.cordons.push(cordon);
+                    }
+                    _ => {
+                        ctx.warn(format!("unexpected root block '{}', kept as-is", block.name));
+                        vmf_file.extra_blocks.push(block);
+                    }
                 }
             }
         }
     }
 
+    vmf_file.warnings = ctx.warnings;
+    vmf_file.suppressed_warnings = ctx.suppressed;
     Ok(vmf_file)
 }
 
-/// Parses a `Pair` representing a VMF block into a `VmfBlock` struct.
-///
-/// # Arguments
-///
-/// * `pair` - The `Pair` representing the VMF block.
-///
-/// # Returns
-///
-/// A `VmfResult` containing the parsed `VmfBlock` or a `VmfError` if parsing fails.
-fn parse_block(pair: Pair<Rule>) -> VmfResult<VmfBlock> {
-    let mut inner = pair.into_inner();
-    let block_name_pair = inner
-        .next()
-        .ok_or_else(|| VmfError::InvalidFormat("block name not found".to_string()))?;
-
-    let name = block_name_pair.as_str().to_string();
-
-    // Pre-allocate with reasonable capacity to avoid reallocations
-    let mut key_values = IndexMap::with_capacity(8);
-    let mut blocks = Vec::with_capacity(16);
-
-    for item in inner {
-        match item.as_rule() {
-            Rule::key_value => {
-                let mut kv_inner = item.into_inner();
-                let key_pair = kv_inner
-                    .next()
-                    .ok_or_else(|| VmfError::InvalidFormat("key not found".to_string()))?;
-                let value_pair = kv_inner
-                    .next()
-                    .ok_or_else(|| VmfError::InvalidFormat("value not found".to_string()))?;
-
-                let key = strip_quotes(key_pair.as_str());
-                let value = strip_quotes(value_pair.as_str());
-
-                key_values
-                    .entry(key)
-                    .and_modify(|existing_value: &mut String| {
-                        existing_value.push('\r');
-                        existing_value.push_str(&value);
-                    })
-                    .or_insert(value);
+/// Converts a `source_kv::de::Value` into a `VmfBlock`.
+fn value_to_vmf_block(name: String, value: source_kv::de::Value) -> VmfBlock {
+    match value {
+        source_kv::de::Value::Str(s) => {
+            let mut key_values = IndexMap::with_capacity(1);
+            key_values.insert(name.clone(), s);
+            VmfBlock {
+                name,
+                key_values,
+                blocks: Vec::new(),
             }
-            Rule::block => {
-                blocks.push(parse_block(item)?);
-            }
-            _ => {}
         }
-    }
+        source_kv::de::Value::Obj(map) => {
+            let mut key_values = IndexMap::with_capacity(map.len());
+            let mut blocks = Vec::with_capacity(map.len() / 4); // heuristics
 
-    Ok(VmfBlock {
-        name,
-        key_values,
-        blocks,
-    })
-}
-
-/// Removes the leading and trailing quotes from a string.
-///
-/// # Arguments
-///
-/// * `s` - The string to strip quotes from.
-///
-/// # Returns
-///
-/// The string with quotes removed.
-#[inline]
-fn strip_quotes(s: &str) -> String {
-    if s.starts_with('"') && s.ends_with('"') {
-        s[1..s.len() - 1].to_string()
-    } else {
-        s.to_string()
+            for (key, mut values) in map {
+                if values.len() == 1 {
+                    let val = values.pop().unwrap();
+                    match val {
+                        source_kv::de::Value::Str(s) => {
+                            key_values.insert(key, s);
+                        }
+                        source_kv::de::Value::Obj(_) => {
+                            blocks.push(value_to_vmf_block(key, val));
+                        }
+                    }
+                } else {
+                    // Repeated keys: string values are joined with '\r', while blocks become separate children
+                    for val in values {
+                        match val {
+                            source_kv::de::Value::Str(s) => {
+                                key_values
+                                    .entry(key.clone())
+                                    .and_modify(|existing: &mut String| {
+                                        existing.push('\r');
+                                        existing.push_str(&s);
+                                    })
+                                    .or_insert(s);
+                            }
+                            source_kv::de::Value::Obj(_) => {
+                                blocks.push(value_to_vmf_block(key.clone(), val));
+                            }
+                        }
+                    }
+                }
+            }
+            VmfBlock {
+                name,
+                key_values,
+                blocks,
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    
     #[test]
     fn parse_block_valid_block() {
         let input = "entity { \"classname\" \"logic_relay\" }";
-        let mut parsed = VmfParser::parse(Rule::block, input).unwrap();
-        let block = parse_block(parsed.next().unwrap()).unwrap();
-
-        assert_eq!(block.name, "entity");
-        assert_eq!(
-            block.key_values.get("classname"),
-            Some(&"logic_relay".to_string())
-        );
-        assert!(block.blocks.is_empty());
+        let mut deserializer = source_kv::de::Deserializer::from_str(input);
+        let root = deserializer.parse_root().unwrap();
+        
+        if let source_kv::de::Value::Obj(map) = root {
+            let (name, mut values) = map.into_iter().next().unwrap();
+            let block = value_to_vmf_block(name, values.remove(0));
+            
+            assert_eq!(block.name, "entity");
+            assert_eq!(
+                block.key_values.get("classname"),
+                Some(&"logic_relay".to_string())
+            );
+            assert!(block.blocks.is_empty());
+        } else {
+            panic!("Expected Obj");
+        }
     }
 
     #[test]
     fn parse_block_nested_blocks() {
         let input = "entity { \"classname\" \"logic_relay\" solid { \"id\" \"1\" } }";
-        let mut parsed = VmfParser::parse(Rule::block, input).unwrap();
-        let block = parse_block(parsed.next().unwrap()).unwrap();
+        let mut deserializer = source_kv::de::Deserializer::from_str(input);
+        let root = deserializer.parse_root().unwrap();
 
-        assert_eq!(block.name, "entity");
-        assert_eq!(
-            block.key_values.get("classname"),
-            Some(&"logic_relay".to_string())
-        );
-        assert_eq!(block.blocks.len(), 1);
-        assert_eq!(block.blocks[0].name, "solid");
-        assert_eq!(block.blocks[0].key_values.get("id"), Some(&"1".to_string()));
+        if let source_kv::de::Value::Obj(map) = root {
+            let (name, mut values) = map.into_iter().next().unwrap();
+            let block = value_to_vmf_block(name, values.remove(0));
+
+            assert_eq!(block.name, "entity");
+            assert_eq!(
+                block.key_values.get("classname"),
+                Some(&"logic_relay".to_string())
+            );
+            assert_eq!(block.blocks.len(), 1);
+            assert_eq!(block.blocks[0].name, "solid");
+            assert_eq!(block.blocks[0].key_values.get("id"), Some(&"1".to_string()));
+        } else {
+            panic!("Expected Obj");
+        }
     }
 
     #[test]
     fn parse_block_empty_block() {
         let input = "entity { }";
-        let mut parsed = VmfParser::parse(Rule::block, input).unwrap();
-        let block = parse_block(parsed.next().unwrap()).unwrap();
+        let mut deserializer = source_kv::de::Deserializer::from_str(input);
+        let root = deserializer.parse_root().unwrap();
 
-        assert_eq!(block.name, "entity");
-        assert!(block.key_values.is_empty());
-        assert!(block.blocks.is_empty());
+        if let source_kv::de::Value::Obj(map) = root {
+            let (name, mut values) = map.into_iter().next().unwrap();
+            let block = value_to_vmf_block(name, values.remove(0));
+
+            assert_eq!(block.name, "entity");
+            assert!(block.key_values.is_empty());
+            assert!(block.blocks.is_empty());
+        } else {
+            panic!("Expected Obj");
+        }
     }
 }

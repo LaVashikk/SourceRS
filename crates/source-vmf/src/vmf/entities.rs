@@ -1,9 +1,7 @@
 //! This module provides structures for representing entities in a VMF file.
 
-use crate::{
-    VmfBlock, VmfSerializable,
-    errors::{VmfError, VmfResult},
-};
+use crate::parse_ctx::{FromBlock, ParseCtx, impl_try_from_block};
+use crate::{Extras, VmfBlock, VmfSerializable};
 use derive_more::{Deref, DerefMut, IntoIterator};
 use indexmap::IndexMap;
 #[cfg(feature = "serialization")]
@@ -12,6 +10,12 @@ use serde::{Deserialize, Serialize};
 use super::common::Editor;
 use super::world::Solid;
 use std::mem;
+
+impl_try_from_block!(Entity);
+
+// Connections live in their own module; re-exported so that
+// `vmf::entities::Connection` keeps resolving.
+pub use super::connection::{Connection, InstanceIo, Special, Target};
 
 /// Represents an entity in a VMF file.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -24,7 +28,7 @@ pub struct Entity {
         feature = "serialization",
         serde(default, skip_serializing_if = "Option::is_none")
     )]
-    pub connections: Option<Vec<(String, String)>>,
+    pub connections: Option<Vec<Connection>>,
     /// The solids associated with this entity, if any.
     #[cfg_attr(
         feature = "serialization",
@@ -38,6 +42,12 @@ pub struct Entity {
     /// and is not serialized back when writing the VMF.
     #[cfg_attr(feature = "serialization", serde(default, skip_serializing))]
     pub is_hidden: bool,
+    /// Blocks this struct does not model. Unknown *keys* land in `key_values`.
+    #[cfg_attr(
+        feature = "serialization",
+        serde(default, skip_serializing_if = "Extras::is_empty")
+    )]
+    pub extra: Extras,
 }
 
 impl Entity {
@@ -67,6 +77,7 @@ impl Entity {
             solids: None,
             editor: Editor::default(),
             is_hidden: false,
+            extra: Extras::default(),
         }
     }
 
@@ -191,24 +202,25 @@ impl Entity {
     pub fn add_connection(
         &mut self,
         output: impl Into<String>,
-        target_entity: impl AsRef<str>,
-        input: impl AsRef<str>,
-        parms: impl AsRef<str>,
+        target_entity: impl Into<String>,
+        input: impl Into<String>,
+        parms: impl Into<String>,
         delay: f32,
         fire_limit: i32,
     ) {
-        let input_result = format!(
-            "{}\x1B{}\x1B{}\x1B{}\x1B{}",
-            target_entity.as_ref(),
-            input.as_ref(),
-            parms.as_ref(),
+        let connection = Connection {
+            output: output.into(),
+            target: target_entity.into(),
+            input: input.into(),
+            params: parms.into(),
             delay,
-            fire_limit
-        );
+            fire_limit,
+        };
+
         if let Some(connections) = &mut self.connections {
-            connections.push((output.into(), input_result));
+            connections.push(connection);
         } else {
-            self.connections = Some(vec![(output.into(), input_result)]);
+            self.connections = Some(vec![connection]);
         }
     }
 
@@ -227,48 +239,47 @@ impl Entity {
     /// * `true` if the connection exists, `false` otherwise.
     pub fn has_connection(&self, output: &str, input: &str) -> bool {
         if let Some(connections) = &self.connections {
-            connections.iter().any(|(o, i)| o == output && i == input)
+            connections
+                .iter()
+                .any(|c| c.output == output && c.input == input)
         } else {
             false
         }
     }
 }
 
-impl TryFrom<VmfBlock> for Entity {
-    type Error = VmfError;
+impl FromBlock for Entity {
+    fn from_block(mut block: VmfBlock, ctx: &mut ParseCtx) -> Self {
+        let blocks = std::mem::take(&mut block.blocks);
 
-    fn try_from(block: VmfBlock) -> VmfResult<Self> {
-        // Extract key-value pairs from the block
-        let key_values = block.key_values;
-
-        // Searches for nested blocks and extracts the necessary information
         let mut ent = Self {
-            key_values,
+            key_values: block.key_values,
             ..Default::default()
         };
-        let mut solids = Vec::with_capacity(block.blocks.len());
+        let mut solids = Vec::with_capacity(blocks.len());
 
-        for mut inner_block in block.blocks {
-            match inner_block.name.as_str() {
-                "editor" => ent.editor = Editor::try_from(inner_block)?,
-                "connections" => ent.connections = process_connections(inner_block.key_values),
-                "solid" => solids.push(Solid::try_from(inner_block)?),
-                "hidden" => {
-                    if !inner_block.blocks.is_empty() {
-                        // Take ownership of the first block instead of cloning
-                        let hidden_block = mem::take(&mut inner_block.blocks[0]);
-                        solids.push(Solid::try_from(hidden_block)?)
-                    }
+        for mut inner_block in blocks {
+            let name = inner_block.name.clone();
+            if name.eq_ignore_ascii_case("editor") {
+                ctx.enter("editor");
+                ent.editor = Editor::from_block(inner_block, ctx);
+                ctx.leave();
+            } else if name.eq_ignore_ascii_case("connections") {
+                ent.connections = process_connections(inner_block.key_values);
+            } else if name.eq_ignore_ascii_case("solid") {
+                ctx.enter_indexed("solid", solids.len());
+                solids.push(Solid::from_block(inner_block, ctx));
+                ctx.leave();
+            } else if name.eq_ignore_ascii_case("hidden") {
+                // Read all solids inside the hidden wrapper.
+                for hidden_block in mem::take(&mut inner_block.blocks) {
+                    ctx.enter_indexed("hidden", solids.len());
+                    solids.push(Solid::from_block(hidden_block, ctx));
+                    ctx.leave();
                 }
-                _ => {
-                    #[cfg(feature = "debug_assert_info")]
-                    debug_assert!(
-                        false,
-                        "Unexpected block name: {}, id: {:?}",
-                        inner_block.name,
-                        ent.key_values.get("id")
-                    );
-                }
+            } else {
+                ctx.warn(format!("unexpected block '{}', kept as-is", name));
+                ent.extra.blocks.push(inner_block);
             }
         }
 
@@ -276,18 +287,36 @@ impl TryFrom<VmfBlock> for Entity {
             ent.solids = Some(solids);
         }
 
-        Ok(ent)
+        ent
     }
 }
 
 impl From<Entity> for VmfBlock {
     fn from(val: Entity) -> Self {
-        let editor = val.editor.into();
+        let mut blocks = Vec::with_capacity(3);
+
+        if let Some(connections) = &val.connections
+            && !connections.is_empty()
+        {
+            blocks.push(VmfBlock {
+                name: "connections".to_string(),
+                key_values: Connection::to_key_values(connections),
+                blocks: Vec::new(),
+            });
+        }
+        if let Some(solids) = val.solids {
+            blocks.extend(solids.into_iter().map(VmfBlock::from));
+        }
+        blocks.push(val.editor.into());
+        blocks.extend(val.extra.blocks);
+
+        let mut key_values = val.key_values;
+        key_values.extend(val.extra.key_values);
 
         VmfBlock {
             name: "entity".to_string(),
-            key_values: val.key_values,
-            blocks: vec![editor],
+            key_values,
+            blocks,
         }
     }
 }
@@ -302,14 +331,19 @@ impl VmfSerializable for Entity {
 
         // Adds key_values of the main block
         for (key, value) in &self.key_values {
-            output.push_str(&format!("{}\t\"{}\" \"{}\"\n", indent, key, value));
+            crate::write_key_value(&mut output, &format!("{indent}\t"), key, value);
         }
 
         // Adds connections block
         if let Some(connections) = &self.connections {
             output.push_str(&format!("{0}\tconnections\n{0}\t{{\n", indent));
-            for (out, inp) in connections {
-                output.push_str(&format!("{}\t\t\"{}\" \"{}\"\n", indent, out, inp));
+            for connection in connections {
+                output.push_str(&format!(
+                    "{}\t\t\"{}\" \"{}\"\n",
+                    indent,
+                    connection.output,
+                    connection.to_value_string()
+                ));
             }
             output.push_str(&format!("{}\t}}\n", indent));
         }
@@ -323,6 +357,7 @@ impl VmfSerializable for Entity {
 
         // Editor block
         output.push_str(&self.editor.to_vmf_string(indent_level + 1));
+        self.extra.write_blocks(&mut output, indent_level + 1);
 
         output.push_str(&format!("{}}}\n", indent));
 
@@ -443,8 +478,7 @@ impl Entities {
     /// An `Option` containing the removed `Entity`, if found. Returns `None`
     /// if no entity with the given ID exists.
     pub fn remove_entity(&mut self, entity_id: i32) -> Option<Entity> {
-        self
-            .iter()
+        self.iter()
             .position(|e| e.key_values.get("id") == Some(&entity_id.to_string()))
             .map(|index| self.remove(index))
     }
@@ -460,20 +494,6 @@ impl Entities {
     }
 }
 
-// utils func
-fn process_connections(map: IndexMap<String, String>) -> Option<Vec<(String, String)>> {
-    if map.is_empty() {
-        return None;
-    }
-
-    // Estimate: we assume an average of no more than 2 records per output
-    let mut result = Vec::with_capacity(map.len() * 2);
-    for (key, value) in map.iter() {
-        // Используем iter, т.к. map по ссылке
-        for part in value.split('\r') {
-            result.push((key.clone(), part.to_string()));
-        }
-    }
-
-    Some(result)
+fn process_connections(map: IndexMap<String, String>) -> Option<Vec<Connection>> {
+    Connection::from_key_values(&map)
 }

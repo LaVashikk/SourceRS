@@ -4,9 +4,9 @@ mod tests {
     use pretty_assertions::assert_eq;
     use source_vmf::VmfBlock;
     use source_vmf::VmfSerializable;
-    use source_vmf::errors::VmfError;
     use source_vmf::vmf::common::Editor;
     use source_vmf::vmf::world::*;
+    use source_vmf::{FromBlock, ParseCtx};
 
     // Tests for World
     #[test]
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(world.solids[1].id, 2);
         assert_eq!(world.hidden.len(), 1);
         assert_eq!(world.hidden[0].id, 3);
-        assert_eq!(world.group.unwrap().id, 10);
+        assert_eq!(world.groups[0].id, 10);
     }
 
     #[test]
@@ -96,12 +96,12 @@ mod tests {
             }],
         };
 
-        let result = World::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let world = World::from_block(block, &mut ctx);
 
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        assert_eq!(world.solids.len(), 1);
+        assert_eq!(world.solids[0].id, 0);
+        assert!(ctx.warnings[0].starts_with("world/solid[0]:"));
     }
 
     #[test]
@@ -117,22 +117,27 @@ mod tests {
                     id: 1,
                     sides: vec![],
                     editor: Editor::default(),
+                    extra: Default::default(),
                 },
                 Solid {
                     id: 2,
                     sides: vec![],
                     editor: Editor::default(),
+                    extra: Default::default(),
                 },
             ],
             hidden: vec![Solid {
                 id: 3,
                 sides: vec![],
                 editor: Editor::default(),
+                extra: Default::default(),
             }],
-            group: Some(Group {
+            groups: vec![Group {
                 id: 10,
                 editor: Editor::default(),
-            }),
+                extra: Default::default(),
+            }],
+            extra: Default::default(),
         };
 
         let expected = "\
@@ -159,7 +164,7 @@ mod tests {
         \t\t\t\"visgroupautoshown\" \"1\"\n\
         \t\t}\n\
         \t}\n\
-        \tHidden\n\
+        \thidden\n\
         \t{\n\
         \t\tsolid\n\
         \t\t{\n\
@@ -200,22 +205,27 @@ mod tests {
                     id: 1,
                     sides: vec![],
                     editor: Editor::default(),
+                    extra: Default::default(),
                 },
                 Solid {
                     id: 2,
                     sides: vec![],
                     editor: Editor::default(),
+                    extra: Default::default(),
                 },
             ],
             hidden: vec![Solid {
                 id: 3,
                 sides: vec![],
                 editor: Editor::default(),
+                extra: Default::default(),
             }],
-            group: Some(Group {
+            groups: vec![Group {
                 id: 10,
                 editor: Editor::default(),
-            }),
+                extra: Default::default(),
+            }],
+            extra: Default::default(),
         };
         let block: VmfBlock = world.into();
 
@@ -248,19 +258,22 @@ mod tests {
     }
 
     #[test]
-    fn solid_try_from_missing_key() {
+    fn solid_missing_key_defaults_and_warns() {
         let block = VmfBlock {
             name: "solid".to_string(),
             key_values: IndexMap::new(),
             blocks: vec![],
         };
 
-        let result = Solid::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let solid = Solid::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(solid.id, 0);
+        assert!(ctx.warnings[0].contains("missing 'id'"));
     }
+
     #[test]
-    fn solid_try_from_invalid_type() {
+    fn solid_invalid_type_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("id".to_string(), "abc".to_string());
 
@@ -270,12 +283,42 @@ mod tests {
             blocks: vec![],
         };
 
-        let result = Solid::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let solid = Solid::from_block(block, &mut ctx);
 
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        assert_eq!(solid.id, 0);
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
+    }
+
+    #[test]
+    fn solid_keeps_unknown_keys_and_blocks() {
+        let mut key_values = IndexMap::new();
+        key_values.insert("id".to_string(), "1".to_string());
+        key_values.insert("vendor_flag".to_string(), "7".to_string());
+
+        let block = VmfBlock {
+            name: "solid".to_string(),
+            key_values,
+            blocks: vec![VmfBlock {
+                name: "vendor_block".to_string(),
+                key_values: IndexMap::new(),
+                blocks: vec![],
+            }],
+        };
+
+        let mut ctx = ParseCtx::default();
+        let solid = Solid::from_block(block, &mut ctx);
+
+        assert_eq!(solid.id, 1);
+        assert_eq!(
+            solid.extra.key_values.get("vendor_flag"),
+            Some(&"7".to_string())
+        );
+        assert_eq!(solid.extra.blocks.len(), 1);
+
+        let text = solid.to_vmf_string(0);
+        assert!(text.contains("vendor_flag"));
+        assert!(text.contains("vendor_block"));
     }
 
     #[test]
@@ -284,6 +327,7 @@ mod tests {
             id: 1,
             sides: vec![],
             editor: Editor::default(),
+            extra: Default::default(),
         };
 
         let expected = "\
@@ -306,6 +350,7 @@ mod tests {
             id: 1,
             sides: vec![],
             editor: Editor::default(),
+            extra: Default::default(),
         };
         let block: VmfBlock = solid.into();
 
@@ -360,13 +405,17 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = Side::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let side = Side::from_block(block, &mut ctx);
 
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+        assert_eq!(side.id, 0);
+        assert_eq!(side.material, "test_material");
+        assert_eq!(side.smoothing_groups, 1);
+        assert!(ctx.warnings[0].contains("missing 'id'"));
     }
 
     #[test]
-    fn side_try_from_invalid_type() {
+    fn side_invalid_type_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("id".to_string(), "abc".to_string());
         key_values.insert("plane".to_string(), "(0 0 0) (1 0 0) (0 1 0)".to_string());
@@ -382,12 +431,12 @@ mod tests {
             blocks: Vec::new(),
         };
 
-        let result = Side::try_from(block);
+        let mut ctx = ParseCtx::default();
+        let side = Side::from_block(block, &mut ctx);
 
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+        assert_eq!(side.id, 0);
+        assert_eq!(side.plane, "(0 0 0) (1 0 0) (0 1 0)");
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
     }
 
     #[test]
@@ -403,6 +452,7 @@ mod tests {
             smoothing_groups: 1,
             flags: None,
             dispinfo: None,
+            extra: Default::default(),
         };
         let expected = "\
         side\n\
@@ -432,6 +482,7 @@ mod tests {
             smoothing_groups: 1,
             flags: None,
             dispinfo: None,
+            extra: Default::default(),
         };
         let block: VmfBlock = side.into();
 
@@ -479,18 +530,22 @@ mod tests {
     }
 
     #[test]
-    fn group_try_from_missing_key() {
+    fn group_missing_key_defaults_and_warns() {
         let block = VmfBlock {
             name: "group".to_string(),
             key_values: IndexMap::new(),
             blocks: vec![],
         };
-        let result = Group::try_from(block);
-        assert!(matches!(result, Err(VmfError::InvalidFormat(_))));
+
+        let mut ctx = ParseCtx::default();
+        let group = Group::from_block(block, &mut ctx);
+
+        assert_eq!(group.id, 0);
+        assert!(ctx.warnings[0].contains("missing 'id'"));
     }
 
     #[test]
-    fn group_try_from_invalid_type() {
+    fn group_invalid_type_defaults_and_warns() {
         let mut key_values = IndexMap::new();
         key_values.insert("id".to_string(), "abc".to_string());
 
@@ -499,17 +554,19 @@ mod tests {
             key_values,
             blocks: vec![],
         };
-        let result = Group::try_from(block);
-        assert!(matches!(
-            result,
-            Err(VmfError::ParseInt { source: _, key: _ })
-        ));
+
+        let mut ctx = ParseCtx::default();
+        let group = Group::from_block(block, &mut ctx);
+
+        assert_eq!(group.id, 0);
+        assert!(ctx.warnings[0].contains("unparsable value 'abc'"));
     }
     #[test]
     fn group_to_vmf_string() {
         let group = Group {
             id: 1,
             editor: Editor::default(),
+            extra: Default::default(),
         };
         let expected = "\
         group\n\
@@ -530,11 +587,73 @@ mod tests {
         let group = Group {
             id: 1,
             editor: Editor::default(),
+            extra: Default::default(),
         };
         let block: VmfBlock = group.into();
         assert_eq!(block.name, "group");
         assert_eq!(block.key_values.get("id"), Some(&"1".to_string()));
         assert!(block.blocks.len() == 1);
         assert_eq!(block.blocks[0].name, "editor");
+    }
+}
+
+#[cfg(test)]
+mod hidden_solids {
+    use pretty_assertions::assert_eq;
+    use source_vmf::prelude::*;
+
+    const MAP: &str = r#"
+versioninfo
+{
+	"editorversion" "400"
+}
+world
+{
+	"id" "1"
+	"classname" "worldspawn"
+	hidden
+	{
+		solid
+		{
+			"id" "10"
+			side
+			{
+				"id" "11"
+				"plane" "(0 0 0) (1 0 0) (0 1 0)"
+				"material" "DEV/DEV_A"
+			}
+		}
+	}
+	hidden
+	{
+		solid
+		{
+			"id" "20"
+			side
+			{
+				"id" "21"
+				"plane" "(0 0 8) (1 0 8) (0 1 8)"
+				"material" "DEV/DEV_B"
+			}
+		}
+	}
+}
+"#;
+
+    #[test]
+    fn every_hidden_solid_survives_a_save_and_reload() {
+        let once = VmfFile::parse(MAP).unwrap();
+        assert_eq!(once.world.hidden.len(), 2, "both read from the file");
+
+        let twice = VmfFile::parse(&once.to_vmf_string()).unwrap();
+        assert_eq!(twice.world.hidden.len(), 2, "and both survive a round trip");
+        assert_eq!(once.to_vmf_string(), twice.to_vmf_string());
+    }
+
+    #[test]
+    fn several_solids_in_one_wrapper_are_all_read() {
+        let grouped = MAP.replace("\t}\n\thidden\n\t{\n", "\n");
+        let file = VmfFile::parse(&grouped).unwrap();
+        assert_eq!(file.world.hidden.len(), 2);
     }
 }

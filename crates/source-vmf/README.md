@@ -1,11 +1,11 @@
 <div align="center">
-<img src="branding/logo.png" alt="Vmf-Forge Logo" width="35%">
+<img src="branding/logo.png" alt="source-vmf Logo" width="35%">
 
-[![Crates.io](https://img.shields.io/crates/v/vmf-forge.svg)](https://crates.io/crates/vmf-forge)
-[![Docs.rs](https://docs.rs/vmf-forge/badge.svg)](https://docs.rs/vmf-forge)
-![License](https://img.shields.io/github/license/IaVashik/vmf-forge)
+[![Crates.io](https://img.shields.io/crates/v/source-vmf.svg)](https://crates.io/crates/source-vmf)
+[![Docs.rs](https://docs.rs/source-vmf/badge.svg)](https://docs.rs/source-vmf)
+![License](https://img.shields.io/github/license/IaVashik/source-vmf)
 
-### `vmf-forge` is a Rust library for parsing, manipulating, and serializing Valve Map Format (VMF) files used in Source Engine games. 
+### `source-vmf` is a Rust library for parsing, manipulating, and serializing Valve Map Format (VMF) files used in Source Engine games. 
 </div>
 
 ## Features
@@ -16,17 +16,17 @@
 
 ## Installation
 
-Add `vmf-forge` to your `Cargo.toml`:
+Add `source-vmf` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-vmf-forge = "0.4.0"
+source-vmf = "0.4.0"
 ```
 
 ## Usage Example
 
 ```rust
-use vmf_forge::prelude::*;
+use source_vmf::prelude::*;
 use std::fs::File;
 
 fn main() -> Result<(), VmfError> {
@@ -61,4 +61,4 @@ Contributions are welcome! Please feel free to open issues or submit pull reques
 
 ## License
 
-`vmf-forge` is distributed under the terms of either the [MIT license](LICENSE).
+`source-vmf` is distributed under the terms of either the [MIT license](LICENSE).

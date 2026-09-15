@@ -14,11 +14,13 @@
 //! ```
 
 pub use crate::VmfFile;
+pub use crate::vmf::{EntId, EntityIndex};
 
 pub use crate::errors::{VmfError, VmfResult};
 
 pub use crate::vmf::{
     common::Editor,
+    connection::{Connection, InstanceIo, Special, Target},
     entities::{Entities, Entity},
     metadata::{VersionInfo, ViewSettings, VisGroup, VisGroups},
     regions::{Camera, Cameras, Cordon, Cordons},
