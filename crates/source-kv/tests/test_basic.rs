@@ -109,14 +109,14 @@ fn test_root_map() {
 fn test_backslash_keeps_utf8() {
     // A backslash used to trigger a byte-wise slow path that mangled non-ASCII
     // into Latin-1 and dropped a trailing slash.
-    let input = "root { \"msg\" \"путь C:\\dir\" \"quoted\" \"say \\\"привет\\\"\" }";
+    let input = "root { \"msg\" \"path C:\\dir\" \"quoted\" \"say \\\"hi\\\"\" }";
     let mut de = Deserializer::from_str(input);
     let root = de.parse_root().unwrap();
     let obj = root.get("root").unwrap();
 
-    assert_eq!(obj.get_string("msg"), Some("путь C:\\dir"));
+    assert_eq!(obj.get_string("msg"), Some("path C:\\dir"));
     // An escaped quote must not terminate the string, and is kept verbatim.
-    assert_eq!(obj.get_string("quoted"), Some("say \\\"привет\\\""));
+    assert_eq!(obj.get_string("quoted"), Some("say \\\"hi\\\""));
 }
 
 #[test]

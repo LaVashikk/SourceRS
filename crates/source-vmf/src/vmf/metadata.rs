@@ -129,10 +129,11 @@ fn find_visgroup_by_id(groups: &[VisGroup], id_to_find: i32) -> Option<&VisGroup
         if group.id == id_to_find {
             return Some(group);
         }
-        if let Some(ref children) = group.children
-            && let Some(found) = find_visgroup_by_id(children, id_to_find) {
+        if let Some(ref children) = group.children {
+            if let Some(found) = find_visgroup_by_id(children, id_to_find) {
                 return Some(found);
             }
+        }
     }
     None
 }
@@ -147,10 +148,11 @@ fn find_visgroup_by_id_mut(
         if group.id == id_to_find {
             return Some(group);
         }
-        if let Some(ref mut children) = group.children
-            && let Some(found) = find_visgroup_by_id_mut(children, id_to_find) {
+        if let Some(ref mut children) = group.children {
+            if let Some(found) = find_visgroup_by_id_mut(children, id_to_find) {
                 return Some(found);
             }
+        }
     }
     None
 }
@@ -162,10 +164,11 @@ fn find_visgroup_by_name<'a>(groups: &'a [VisGroup], name_to_find: &str) -> Opti
         if group.name == name_to_find {
             return Some(group);
         }
-        if let Some(ref children) = group.children
-            && let Some(found) = find_visgroup_by_name(children, name_to_find) {
+        if let Some(ref children) = group.children {
+            if let Some(found) = find_visgroup_by_name(children, name_to_find) {
                 return Some(found);
             }
+        }
     }
     None
 }
@@ -180,10 +183,11 @@ fn find_visgroup_by_name_mut<'a>(
         if group.name == name_to_find {
             return Some(group);
         }
-        if let Some(ref mut children) = group.children
-            && let Some(found) = find_visgroup_by_name_mut(children, name_to_find) {
+        if let Some(ref mut children) = group.children {
+            if let Some(found) = find_visgroup_by_name_mut(children, name_to_find) {
                 return Some(found);
             }
+        }
     }
     None
 }

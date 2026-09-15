@@ -104,10 +104,7 @@ impl Vmt {
 
     /// Checks boolean flags: supports "1", "true", "yes".
     pub fn get_bool(&self, key: &str) -> bool {
-        match self.get_string(key).as_deref() {
-            Some("1") | Some("true") => true,
-            _ => false,
-        }
+        matches!(self.get_string(key).as_deref(), Some("1") | Some("true"))
     }
 
     /// Parses colors/vectors in both [0.0 0.0 0.0] and {255 255 255} formats.

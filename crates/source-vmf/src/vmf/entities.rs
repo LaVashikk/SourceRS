@@ -295,14 +295,14 @@ impl From<Entity> for VmfBlock {
     fn from(val: Entity) -> Self {
         let mut blocks = Vec::with_capacity(3);
 
-        if let Some(connections) = &val.connections
-            && !connections.is_empty()
-        {
-            blocks.push(VmfBlock {
-                name: "connections".to_string(),
-                key_values: Connection::to_key_values(connections),
-                blocks: Vec::new(),
-            });
+        if let Some(connections) = &val.connections {
+            if !connections.is_empty() {
+                blocks.push(VmfBlock {
+                    name: "connections".to_string(),
+                    key_values: Connection::to_key_values(connections),
+                    blocks: Vec::new(),
+                });
+            }
         }
         if let Some(solids) = val.solids {
             blocks.extend(solids.into_iter().map(VmfBlock::from));

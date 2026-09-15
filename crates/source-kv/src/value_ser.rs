@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn test_serialize_primitives() {
         assert_eq!(to_value(&42).unwrap(), Value::Str("42".to_string()));
-        assert_eq!(to_value(&3.14f32).unwrap(), Value::Str("3.14".to_string()));
+        assert_eq!(to_value(&4.14f32).unwrap(), Value::Str("4.14".to_string()));
         assert_eq!(to_value(&true).unwrap(), Value::Str("1".to_string()));
         assert_eq!(to_value(&false).unwrap(), Value::Str("0".to_string()));
         assert_eq!(to_value(&"hello").unwrap(), Value::Str("hello".to_string()));

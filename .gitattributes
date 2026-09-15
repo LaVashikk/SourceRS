@@ -1,0 +1,5 @@
+# Windows runners check out with core.autocrlf=true by default, which rewrites
+# fixture line endings and breaks tests that compare file contents byte for byte
+* text=auto eol=lf
+
+*.vpk binary

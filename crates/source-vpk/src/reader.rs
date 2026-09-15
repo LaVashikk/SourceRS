@@ -114,52 +114,48 @@ impl Seek for EntryReader {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::io::{Read, Seek};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::io::{Read, Seek, Write};
+
+    use tempfile::NamedTempFile;
 
     use super::*;
 
-    fn temporary_file(contents: &[u8]) -> (std::path::PathBuf, File) {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("source-vpk-reader-{suffix}"));
-        fs::write(&path, contents).unwrap();
-        let file = File::open(&path).unwrap();
-        (path, file)
+    /// The handle is returned alongside the guard on purpose: dropping the
+    /// NamedTempFile deletes the file, so the caller has to keep it alive for
+    /// as long as the reader is reading.
+    fn temporary_file(contents: &[u8]) -> (NamedTempFile, File) {
+        let mut temp = NamedTempFile::new().unwrap();
+        temp.write_all(contents).unwrap();
+        temp.flush().unwrap();
+        let file = File::open(temp.path()).unwrap();
+        (temp, file)
     }
 
     #[test]
     fn reads_preload_and_archive_data_as_one_stream() {
-        let (path, file) = temporary_file(b"__payload__trailing");
+        let (_temp, file) = temporary_file(b"__payload__trailing");
         let mut reader = EntryReader::new(file, b"pre".to_vec(), 2, 9).unwrap();
         let mut output = String::new();
 
         reader.read_to_string(&mut output).unwrap();
         assert_eq!(output, "prepayload__");
         assert_eq!(reader.len(), 12);
-
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn reports_truncated_backing_data() {
-        let (path, file) = temporary_file(b"abc");
+        let (_temp, file) = temporary_file(b"abc");
         let mut reader = EntryReader::new(file, Vec::new(), 0, 4).unwrap();
         let mut output = Vec::new();
 
         let error = reader.read_to_end(&mut output).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
         assert_eq!(output, b"abc");
-
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
     fn seek_stays_inside_the_entry_view() {
-        let (path, file) = temporary_file(b"prefix-data-trailing");
+        let (_temp, file) = temporary_file(b"prefix-data-trailing");
         let mut reader = EntryReader::new(file, b"pre".to_vec(), 7, 4).unwrap();
         let mut output = [0; 3];
 
@@ -171,7 +167,5 @@ mod tests {
         let mut tail = String::new();
         reader.read_to_string(&mut tail).unwrap();
         assert_eq!(tail, "ta");
-
-        fs::remove_file(path).unwrap();
     }
 }

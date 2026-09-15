@@ -6,6 +6,7 @@ documentation = "https://docs.rs/source-vmf"
 readme = "README.md"
 keywords = ["vmf", "valve", "map", "parser", "source"]
 categories = ["parser-implementations", "game-development"]
+exclude = ["vmf_examples/VERY_complex.vmf"]
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

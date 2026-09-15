@@ -62,9 +62,9 @@ pub(crate) fn resolve_path_case_insensitive(base_dir: &Path, relative_path: &str
             _ => continue,
         };
 
-        let target_name_lower = match component_os_str.to_str() {
-            Some(s) => s.to_lowercase(),
-            None => return None,
+        let target_name_lower = {
+            let s = component_os_str.to_str()?;
+            s.to_lowercase()
         };
 
         let mut found_match = false;

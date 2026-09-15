@@ -1,64 +1,112 @@
-<div align="center">
-<img src="branding/logo.png" alt="source-vmf Logo" width="35%">
+# source-vmf
 
-[![Crates.io](https://img.shields.io/crates/v/source-vmf.svg)](https://crates.io/crates/source-vmf)
-[![Docs.rs](https://docs.rs/source-vmf/badge.svg)](https://docs.rs/source-vmf)
-![License](https://img.shields.io/github/license/IaVashik/source-vmf)
+A straightforward, high-performance library for parsing, manipulating, and serializing Valve Map Format (VMF) files used in Source Engine games.
 
-### `source-vmf` is a Rust library for parsing, manipulating, and serializing Valve Map Format (VMF) files used in Source Engine games. 
-</div>
+It provides a strongly-typed representation of map geometry, entities, visgroups, cameras, and cordons, while preserving unknown keys and custom blocks for lossless round-tripping.
 
-## Features
+## Key Features
 
-*   Parses VMF files into convenient Rust data structures.
-*   Allows modification of VMF data.
-*   Serializes the modified data back into a VMF file.
+* **Lossless Round-tripping**: Preserves unknown properties and custom vendor blocks across parse and serialize cycles.
+* **Complete Map Coverage**: Strongly-typed structures for version info, visgroups, view settings, world geometry (solids, sides), point and brush entities, cameras, and cordons.
+* **Fast Entity Lookups**: Search entities across visible and hidden blocks by targetname or name prefix using `EntityIndex`.
+* **Entity I/O Connections**: Ergonomic API for reading, modifying, and creating entity logic connections.
+* **Atomic Saving**: Writes safely to a temporary `.part` file before replacing the target file on disk.
+* **Map Merging**: Built-in helper to merge geometry, entities, visgroups, and cordons from multiple VMF files.
+* **Serde Support**: Optional `serialization` feature for serializing and deserializing VMF structures.
 
-## Installation
+### Feature Flags
 
-Add `source-vmf` to your `Cargo.toml`:
+* `serialization` — Enables Serde `Serialize` and `Deserialize` implementations for VMF data structures.
 
-```toml
-[dependencies]
-source-vmf = "0.4.0"
-```
+## Quick Start
 
-## Usage Example
+### 1. Reading, Modifying, and Saving a Map
 
-```rust
+```rust,no_run
 use source_vmf::prelude::*;
-use std::fs::File;
 
 fn main() -> Result<(), VmfError> {
-    let mut file = File::open("your_map.vmf")?;
-    let vmf_file = VmfFile::parse_file(&mut file)?;
+    let mut vmf = VmfFile::open("maps/de_dust2.vmf")?;
 
-    // Access and modify the VMF data
-    println!("Map Version: {}", vmf_file.versioninfo.map_version);
+    println!("Map version: {}", vmf.versioninfo.map_version);
 
-    // Find info_player_start entity
-    if let Some(player_start) = vmf_file.entities.find_by_classname("info_player_start").next() {
-       println!("Found player start: {:?}", player_start);
-   }
+    // Find entities by classname
+    for player_start in vmf.entities.find_by_classname("info_player_start") {
+        println!("Spawn origin: {:?}", player_start.get("origin"));
+    }
 
-    // Add a new entity
-    let mut new_entity = Entity::default();
-    new_entity.key_values.insert("classname".to_string(), "prop_static".to_string());
-    new_entity.key_values.insert("model".to_string(), "models/props_foliage/urban_tree001a.mdl".to_string());
-    new_entity.key_values.insert("origin".to_string(), "0 0 0".to_string());
-    vmf_file.entities.push(new_entity);
+    // Create and add a new entity
+    let mut tree = Entity::new("prop_static", 1000);
+    tree.set("model".to_string(), "models/props_foliage/tree01.mdl".to_string());
+    tree.set("origin".to_string(), "0 0 0".to_string());
+    vmf.entities.push(tree);
 
-    // Save the modified VMF file
-    vmf_file.save("modified_map.vmf")?;
+    // Save atomically to disk
+    vmf.save("maps/de_dust2_modified.vmf")?;
 
     Ok(())
 }
 ```
 
-## Contributing
+### 2. Fast Lookups with EntityIndex
 
-Contributions are welcome! Please feel free to open issues or submit pull requests.
+```rust,no_run
+use source_vmf::prelude::*;
+
+fn main() -> Result<(), VmfError> {
+    let vmf = VmfFile::open("maps/test.vmf")?;
+    let index = EntityIndex::build(&vmf);
+
+    // Exact match by targetname (includes hidden entities)
+    for &id in index.by_name("door_1") {
+        if let Some(ent) = vmf.entity(id) {
+            println!("Found door: {:?}", ent.classname());
+        }
+    }
+
+    // Prefix search (e.g., all entities starting with "door_")
+    for id in index.by_prefix("door_") {
+        if let Some(ent) = vmf.entity(id) {
+            println!("Matched entity: {:?}", ent.targetname());
+        }
+    }
+
+    Ok(())
+}
+```
+
+### 3. Adding Logic Connections
+
+```rust
+use source_vmf::prelude::*;
+
+let mut button = Entity::new("func_button", 42);
+button.add_connection(
+    "OnPressed",
+    "door_main",
+    "Open",
+    "",
+    0.0,
+    -1,
+);
+```
+
+### 4. Merging Maps
+
+```rust,no_run
+use source_vmf::prelude::*;
+
+fn main() -> Result<(), VmfError> {
+    let mut base_map = VmfFile::open("maps/base.vmf")?;
+    let prefab = VmfFile::open("maps/prefab.vmf")?;
+
+    // Merges world solids, entities, hidden entities, visgroups, and cordons
+    base_map.merge(prefab);
+    base_map.save("maps/combined.vmf")?;
+
+    Ok(())
+}
+```
 
 ## License
-
-`source-vmf` is distributed under the terms of either the [MIT license](LICENSE).
+MIT License.
