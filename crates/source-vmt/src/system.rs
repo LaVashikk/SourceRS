@@ -1,26 +1,30 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::path::PathBuf;
 use crate::vmt::Vmt;
 
-use source_fs::{FileSystem, traits::PackFile, providers::DummyVpk, FileSystemError};
+use source_fs::{DefaultPack, FileLocation, FileSystem, Error, PackFile};
 
 /// MaterialSystem manages material caching, resolution, and file path tracking.
-pub struct MaterialSystem<P: PackFile = DummyVpk> {
+pub struct MaterialSystem<P: PackFile = DefaultPack> {
     /// The underlying file system used to load materials.
     pub fs: FileSystem<P>,
     /// Cache of loaded materials (unresolved).
     cache: HashMap<String, Arc<Vmt>>,
     /// Cache of resolved materials (with patch inheritance applied).
     resolved_cache: HashMap<String, Arc<Vmt>>,
-    /// Map of material names to their file paths.
-    paths: HashMap<String, PathBuf>,
+    /// Where each loaded material was found.
+    paths: HashMap<String, FileLocation<P>>,
     /// Fallback material used when a requested material is not found.
     fallback: Option<Arc<Vmt>>,
     /// The search path group (e.g., "game", "mod").
     pub search_path: String,
-    /// Whether to prioritize VPK files over loose files.
-    pub prioritize_vpks: bool,
+}
+
+impl MaterialSystem<DefaultPack> {
+    /// Creates a MaterialSystem by loading a FileSystem from a game directory (containing gameinfo.txt).
+    pub fn from_path(path: impl AsRef<std::path::Path>) -> Result<Self, Error> {
+        Ok(Self::new(source_fs::create_fs(path)?))
+    }
 }
 
 impl<P: PackFile> MaterialSystem<P> {
@@ -33,14 +37,7 @@ impl<P: PackFile> MaterialSystem<P> {
             paths: HashMap::new(),
             fallback: None,
             search_path: "game".to_string(),
-            prioritize_vpks: false,
         }
-    }
-
-    /// Creates a MaterialSystem by loading a FileSystem from a game directory (containing gameinfo.txt).
-    pub fn from_path(path: impl AsRef<std::path::Path>) -> Result<MaterialSystem<DummyVpk>, FileSystemError> {
-        let fs = source_fs::create_fs(path)?;
-        Ok(MaterialSystem::<DummyVpk>::new(fs))
     }
 
     /// Sets a fallback material to return when a material is not found.
@@ -59,12 +56,6 @@ impl<P: PackFile> MaterialSystem<P> {
         self
     }
 
-    /// Sets whether VPKs should be prioritized over loose files.
-    pub fn prioritize_vpks(mut self, prioritize: bool) -> Self {
-        self.prioritize_vpks = prioritize;
-        self
-    }
-
     /// Returns a material as-is (without resolving patches).
     pub fn get_material(&mut self, path: &str) -> Result<Arc<Vmt>, crate::Error> {
         let path_lower = path.to_lowercase();
@@ -73,19 +64,14 @@ impl<P: PackFile> MaterialSystem<P> {
             return Ok(Arc::clone(cached));
         }
 
-        // Try to find the file path first
-        if let Some(file_path) = self.fs.find_asset(&path_lower, "materials/", ".vmt", &self.search_path) {
-            self.paths.insert(path_lower.clone(), file_path);
-        }
-
-        let data = self
-            .fs
-            .read_material_str(&path_lower, &self.search_path, self.prioritize_vpks)
-            .map_err(|error| crate::Error::Message(error.to_string()))?;
-        if let Some(data) = data {
-            let vmt = Vmt::from_str(&data)?;
-            let arc_vmt = Arc::new(vmt);
-            self.cache.insert(path_lower, Arc::clone(&arc_vmt));
+        if let Some(location) = self.fs.find_asset(&path_lower, "materials/", ".vmt", &self.search_path) {
+            let data = location
+                .read()
+                .map_err(|error| crate::Error::Message(error.to_string()))?;
+            let data = String::from_utf8(data).map_err(|error| crate::Error::Message(error.to_string()))?;
+            let arc_vmt = Arc::new(Vmt::from_str(&data)?);
+            self.cache.insert(path_lower.clone(), Arc::clone(&arc_vmt));
+            self.paths.insert(path_lower, location);
             return Ok(arc_vmt);
         }
 
@@ -145,8 +131,8 @@ impl<P: PackFile> MaterialSystem<P> {
         Ok(base_owned)
     }
 
-    /// Returns the file path of a loaded material, if available.
-    pub fn get_material_path(&self, path: &str) -> Option<&PathBuf> {
+    /// Returns where a loaded material was found, if available.
+    pub fn get_material_path(&self, path: &str) -> Option<&FileLocation<P>> {
         self.paths.get(&path.to_lowercase())
     }
 }

@@ -1,175 +1,104 @@
-use std::path::{Path, PathBuf};
+//! How a game install turns into search paths.
 
-use crate::{GameInfoProvider, PackFile};
+use std::path::PathBuf;
 
-/// A dummy implementation that ignores VPK files.
-/// Forces the FileSystem to read exclusively from physical disk directories.
-#[derive(Debug, Clone, Copy)]
-pub struct DummyVpk;
+pub use crate::gameinfo::{GameRoots, SearchPath};
+use crate::gameinfo::{read_block, read_search_paths};
+use crate::Error;
 
-impl PackFile for DummyVpk {
-    type Error = std::convert::Infallible;
-    type Reader<'a> = std::io::Cursor<Vec<u8>>;
-
-    fn open<P: AsRef<Path>>(_path: P) -> Result<Option<Self>, Self::Error> {
-        Ok(None)
-    }
-
-    fn has_entry(&self, _path: &str) -> bool {
-        false
-    }
-
-    fn open_entry<'a>(&'a self, _path: &str) -> Result<Self::Reader<'a>, Self::Error> {
-        Ok(std::io::Cursor::new(Vec::new()))
-    }
+/// Builds the search path list for a game: what `gameinfo.txt` lists plus
+/// what the game's exe mounts on its own (Portal 2 DLC folders, `mount.cfg`).
+///
+/// For a game or mod whose exe mounts something gameinfo does not mention,
+/// combine the building blocks of this module:
+///
+/// ```no_run
+/// use source_fs::FileSystem;
+/// use source_fs::providers::{self, GameInfoProvider, GameRoots, SearchPath, SimpleGameInfo};
+///
+/// /// Portal 2 mod with an extra `shared_assets/` folder next to the game dirs
+/// struct MyMod;
+///
+/// impl GameInfoProvider for MyMod {
+///     fn search_paths(roots: &GameRoots) -> source_fs::Result<Vec<SearchPath>> {
+///         let mut paths = providers::portal2_dlc(roots);
+///         paths.push(SearchPath::new("game", roots.base_dir.join("shared_assets")));
+///         paths.extend(SimpleGameInfo::search_paths(roots)?);
+///         Ok(paths)
+///     }
+/// }
+///
+/// # fn main() -> source_fs::Result<()> {
+/// let fs: FileSystem = FileSystem::load_from_path::<MyMod>("Portal 2/mymod".as_ref(), &Default::default())?;
+/// # Ok(())
+/// # }
+/// ```
+pub trait GameInfoProvider {
+    /// Search paths in priority order, highest first. Paths that don't exist
+    /// are skipped by the loader.
+    fn search_paths(roots: &GameRoots) -> crate::Result<Vec<SearchPath>>;
 }
 
-#[cfg(feature = "vpk")]
-impl PackFile for source_vpk::Vpk {
-    type Error = source_vpk::Error;
-    type Reader<'a> = source_vpk::EntryReader;
-
-    fn open<P: AsRef<Path>>(path: P) -> Result<Option<Self>, Self::Error> {
-        source_vpk::Vpk::open(path).map(Some)
-    }
-
-    fn has_entry(&self, path: &str) -> bool {
-        self.contains(path)
-    }
-
-    fn open_entry<'a>(&'a self, path: &str) -> Result<Self::Reader<'a>, Self::Error> {
-        source_vpk::Vpk::open_entry(self, path)
-    }
-}
-
-/// A basic VDF parser specifically for extracting SearchPaths from gameinfo.txt
+/// Plain `gameinfo.txt`, nothing hardcoded
 pub struct SimpleGameInfo;
 
 impl GameInfoProvider for SimpleGameInfo {
-    fn get_search_paths<P: AsRef<Path>>(path: P) -> Option<Vec<(String, String)>> {
-        let content = std::fs::read_to_string(&path).ok()?;
-        let path_ref = path.as_ref();
-        let mut paths = Vec::new();
-        let mut in_search_paths = false;
-
-
-        // TODO: EXRREMELY naive parser. use a `source-kv` parser after first release
-        // but it works, so it's good enough for now
-        for line in content.lines() {
-            let line = line.trim().to_lowercase();
-
-            if line.contains("\"searchpaths\"") || line.contains("searchpaths") {
-                in_search_paths = true;
-                continue;
-            }
-
-            if in_search_paths {
-                if line == "}" {
-                    break;
-                }
-
-                if line == "{" || line.is_empty() || line.starts_with("//") {
-                    continue;
-                }
-
-                let parts: Vec<&str> = line
-                    .trim()
-                    .splitn(2, char::is_whitespace)
-                    .map(|s| s.trim_start().trim_matches('"'))
-                    .collect();
-
-                if parts.len() >= 2 {
-                    let resolved = crate::utils::resolve_macro_path(parts[1], path_ref);
-                    paths.push((parts[0].to_string(), resolved.to_string_lossy().to_string()));
-                }
-            }
-        }
-
-        if paths.is_empty() {
-            None
-        } else {
-            Some(paths)
-        }
+    fn search_paths(roots: &GameRoots) -> Result<Vec<SearchPath>, Error> {
+        read_search_paths(roots)
     }
 }
 
-/// A GameInfoProvider that also parses `mount.cfg` for additional search paths,
-/// typically found in Source engine games like Garry's Mod or P2CE.
+/// `gameinfo.txt` followed by the games listed in `cfg/mount.cfg` (Garry's Mod, P2CE)
 pub struct SimpleWithMount;
 
 impl GameInfoProvider for SimpleWithMount {
-    fn get_search_paths<P: AsRef<Path>>(path: P) -> Option<Vec<(String, String)>> {
-        let path_ref = path.as_ref();
-        let main_game_dir = path_ref.parent()?;
-
-        let mut res_paths = SimpleGameInfo::get_search_paths(path_ref)?;
-
-        let mount_cfg_path = main_game_dir.join("cfg").join("mount.cfg");
-
-        if let Ok(mount_cfg_content) = std::fs::read_to_string(&mount_cfg_path) {
-            // Naive KV parser for mount.cfg
-            for line in mount_cfg_content.lines() {
-                let line = line.trim();
-                if line.starts_with("//") || line.is_empty() || line == "{" || line == "}" || line.contains("mountcfg") {
-                    continue;
-                }
-
-                let parts: Vec<&str> = line
-                    .splitn(2, |c: char| c.is_whitespace())
-                    .map(|s| s.trim().trim_matches('"'))
-                    .filter(|s| !s.is_empty())
-                    .collect();
-
-                if parts.len() >= 2 {
-                    let mount_path = parts[1];
-                    let mount_game_dir = if Path::new(mount_path).is_absolute() {
-                        PathBuf::from(mount_path)
-                    } else {
-                        main_game_dir.join(mount_path)
-                    };
-
-                    let mount_info_path = mount_game_dir.join("gameinfo.txt");
-                    if mount_info_path.exists() {
-                        if let Some(mounted_paths) = SimpleGameInfo::get_search_paths(&mount_info_path) {
-                            res_paths.extend(mounted_paths);
-                        }
-                    }
-                }
-            }
-        }
-
-        if res_paths.is_empty() {
-            None
-        } else {
-            Some(res_paths)
-        }
+    fn search_paths(roots: &GameRoots) -> Result<Vec<SearchPath>, Error> {
+        let mut paths = read_search_paths(roots)?;
+        paths.extend(mount_cfg(roots)?);
+        Ok(paths)
     }
 }
 
-
-/// Portal 2 has a unique feature: DLC folders.
-/// They aren't added to SearchPaths;
-/// the game automatically mounts the content if it exists, incrementing the DLC number
+/// Portal 2: `update/` and `portal2_dlcN/` on top of `gameinfo.txt`
 pub struct P2GameInfo;
 
 impl GameInfoProvider for P2GameInfo {
-    fn get_search_paths<P: AsRef<Path>>(path: P) -> Option<Vec<(String, String)>> {
-
-        // only for portal 2:
-        let path_ref = path.as_ref();
-        let game_path = path_ref.ancestors().nth(2).unwrap_or_else(|| Path::new(""));
-
-        let mut paths: Vec<_> = (1..)
-            .map(|idx| format!("portal2_dlc{}/", idx))
-            .take_while(|dlc_name| game_path.join(dlc_name).exists())
-            .map(|dlc_name| ("game".to_string(), dlc_name))
-            .collect();
-
-        paths.reverse();
-        paths.extend(SimpleGameInfo::get_search_paths(&path)?);
-
-        Some(paths)
+    fn search_paths(roots: &GameRoots) -> Result<Vec<SearchPath>, Error> {
+        let mut paths = portal2_dlc(roots);
+        paths.extend(read_search_paths(roots)?);
+        Ok(paths)
     }
 }
 
-// TODO: Add other unique GameInfoProviders here
+/// Search paths of every game listed in `<game_dir>/cfg/mount.cfg`.
+/// Entries without a `gameinfo.txt` are skipped, like the game does.
+pub fn mount_cfg(roots: &GameRoots) -> Result<Vec<SearchPath>, Error> {
+    let Ok(text) = std::fs::read_to_string(roots.game_dir.join("cfg").join("mount.cfg")) else {
+        return Ok(Vec::new());
+    };
+
+    let mut paths = Vec::new();
+    for (_, location) in read_block(&text, "mountcfg").unwrap_or_default() {
+        let Ok(mounted) = GameRoots::new(&roots.game_dir.join(location), None) else {
+            continue;
+        };
+        paths.extend(read_search_paths(&mounted)?);
+    }
+    Ok(paths)
+}
+
+/// The Portal 2 exe mounts `update/`, then `portal2_dlcN..1` (scan stops at the
+/// first missing number), above everything from gameinfo, as both `game` and `mod`.
+pub fn portal2_dlc(roots: &GameRoots) -> Vec<SearchPath> {
+    let mut dlcs: Vec<PathBuf> = (1..)
+        .map(|n| roots.base_dir.join(format!("portal2_dlc{n}")))
+        .take_while(|dir| dir.is_dir())
+        .collect();
+    dlcs.reverse();
+
+    std::iter::once(roots.base_dir.join("update"))
+        .filter(|dir| dir.is_dir())
+        .chain(dlcs)
+        .map(|dir| SearchPath::new("game+mod", dir))
+        .collect()
+}

@@ -1,557 +1,214 @@
-use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
-use std::io::{Read, Seek, SeekFrom};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::{FileSystemError, GameInfoProvider, PackFile, utils};
+use crate::mount::{open_loose, open_packed, read_all};
+use crate::{Error, FileLocation, FileReader, Mount, PackFile, Result, utils};
 
-/// Options for [`FileSystem`] initialization
-#[derive(Debug, Clone, Default)]
-pub struct FileSystemOptions {
-    /// Subdirectory under `bin/` for platform binaries (e.g. `"win64"`, `"linux64"`)
-    pub bin_platform: Option<String>,
-}
-
-/// Mounts all `*_dir.vpk` archives found in `dir` under `search` in deterministic order
-fn mount_dir_archives<P: PackFile>(
-    vpks: &mut HashMap<String, Vec<Arc<P>>>,
-    cache: &mut HashMap<PathBuf, Arc<P>>,
-    dir: &Path,
-    search: &str,
-) -> Result<(), FileSystemError> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Ok(());
-    };
-
-    let mut archives: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.to_lowercase().ends_with("_dir.vpk"))
-        })
-        .collect();
-    archives.sort();
-
-    for path in archives {
-        let pack = match cache.get(&path) {
-            Some(p) => Arc::clone(p),
-            None => {
-                let opened = P::open(&path)
-                    .map_err(|error| FileSystemError::pack(path.clone(), error))?;
-                let Some(pack) = opened.map(Arc::new) else { continue };
-                cache.insert(path.clone(), Arc::clone(&pack));
-                pack
-            }
-        };
-        vpks.entry(search.to_string()).or_default().push(pack);
-    }
-
-    Ok(())
-}
-
-/// Core FileSystem representation holding physical directories and loaded pack files.
+/// Virtual filesystem: search path IDs mapped to their mounts in priority order.
 #[derive(Debug)]
 pub struct FileSystem<P: PackFile = crate::DefaultPack> {
     root_path: PathBuf,
-    search_path_dirs: HashMap<String, Vec<PathBuf>>,
-    search_path_vpks: HashMap<String, Vec<Arc<P>>>,
-}
-
-/// Streaming file handle returned by the virtual filesystem.
-pub enum FileReader<'a, P: PackFile + 'a> {
-    Loose(std::fs::File),
-    Packed(P::Reader<'a>),
-}
-
-impl<'a, P: PackFile + 'a> Read for FileReader<'a, P> {
-    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        match self {
-            Self::Loose(file) => file.read(buffer),
-            Self::Packed(file) => file.read(buffer),
-        }
-    }
-}
-
-impl<'a, P: PackFile + 'a> Seek for FileReader<'a, P> {
-    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
-        match self {
-            Self::Loose(file) => file.seek(position),
-            Self::Packed(file) => file.seek(position),
-        }
-    }
+    search_paths: HashMap<String, Vec<Mount<P>>>,
 }
 
 impl<P: PackFile> Clone for FileSystem<P> {
     fn clone(&self) -> Self {
         Self {
             root_path: self.root_path.clone(),
-            search_path_dirs: self.search_path_dirs.clone(),
-            search_path_vpks: self.search_path_vpks.clone(),
+            search_paths: self.search_paths.clone()
         }
     }
 }
 
+/// Borrowed result of a lookup, so `open` can hand out readers tied to `&self`
+enum Hit<'a, P> {
+    Loose(PathBuf),
+    Packed(&'a Arc<P>),
+}
+
 impl<P: PackFile> FileSystem<P> {
-    /// Locates the game using the local Steam installation and loads the filesystem.
-    #[cfg(feature = "steam")]
-    pub fn load_from_app_id<G: GameInfoProvider>(
-        app_id: u32,
-        game_name: &str,
-        options: &FileSystemOptions,
-    ) -> Result<Self, FileSystemError> {
-        let steamdir = steamlocate::SteamDir::locate().map_err(|_| FileSystemError::SteamNotFound)?;
-        let (app, library) = steamdir
-            .find_app(app_id)?
-            .ok_or(FileSystemError::SteamAppNotFound(app_id))?;
-        let game_path = library.resolve_app_dir(&app).join(&game_name);
-
-        Self::load_from_path::<G>(&game_path, options)
+    /// Empty filesystem. Relative paths passed to `mount_*` resolve against `root_path`.
+    pub fn new(root_path: impl Into<PathBuf>) -> Self {
+        Self {
+            root_path: root_path.into(),
+            search_paths: HashMap::new(),
+        }
     }
 
-    /// Loads the filesystem from a specific game directory (where `gameinfo.txt` resides).
-    pub fn load_from_path<G: GameInfoProvider>(
-        game_path: &Path,
-        options: &FileSystemOptions,
-    ) -> Result<Self, FileSystemError> {
-        let gameinfo_path = game_path.join("gameinfo.txt");
-        if !gameinfo_path.is_file() {
-            return Err(FileSystemError::GameInfoNotFound(gameinfo_path));
-        }
-
-        let root_path = game_path.parent()
-            .ok_or_else(|| FileSystemError::InvalidGamePath(game_path.to_path_buf()))?
-            .to_path_buf();
-        let game_id = game_path.file_name()
-            .ok_or_else(|| FileSystemError::InvalidGamePath(game_path.to_path_buf()))?
-            .to_string_lossy()
-            .to_string();
-
-        let mut fs = Self {
-            root_path,
-            search_path_dirs: HashMap::new(),
-            search_path_vpks: HashMap::new(),
-        };
-
-        let search_paths = G::get_search_paths(&gameinfo_path)
-            .ok_or(FileSystemError::GameInfoParseError)?;
-        if search_paths.is_empty() {
-            return Ok(fs);
-        }
-
-        // Avoid reopening archives shared across multiple search paths
-        let mut pack_cache: HashMap<PathBuf, Arc<P>> = HashMap::new();
-
-        for (i, (key, value)) in search_paths.into_iter().enumerate() {
-            let searches: Vec<String> = key.to_lowercase()
-                .split('+')
-                .map(|s| s.to_string())
-                .collect();
-
-            let mut path = value;// .to_lowercase(); // todo: case insensitive!
-
-            if path.ends_with('.') && !path.ends_with("..") {
-                path.pop();
-            }
-            let path = utils::normalize_slashes(&path, false, false);
-
-            if path.ends_with(".vpk") {
-                let mut full_path = fs.root_path.join(&path);
-
-                if !full_path.exists() {
-                    // Try to fallback to the `_dir.vpk` naming convention
-                    if let Some(stem) = full_path.file_stem() {
-                        let parent = full_path.parent().unwrap_or_else(|| Path::new(""));
-                        let dir_vpk = parent.join(format!("{}_dir.vpk", stem.to_string_lossy()));
-                        if dir_vpk.exists() {
-                            full_path = dir_vpk;
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
-                }
-
-                let pack = P::open(&full_path)
-                    .map_err(|error| FileSystemError::pack(full_path.clone(), error))?;
-                if let Some(pack) = pack.map(Arc::new) {
-                    for search in &searches {
-                        fs.search_path_vpks
-                            .entry(search.clone())
-                            .or_default()
-                            .push(Arc::clone(&pack));
-                    }
-                }
-            } else {
-                for search in &searches {
-                    if path.ends_with("/*") {
-                        let glob_parent_path = fs.root_path.join(&path[..path.len() - 2]);
-                        if glob_parent_path.is_dir() {
-                            if let Ok(entries) = std::fs::read_dir(&glob_parent_path) {
-                                for entry in entries.flatten() {
-                                    let glob_child_path = utils::normalize_slashes(
-                                        &entry.path().to_string_lossy(),
-                                        false,
-                                        false,
-                                    );
-                                    fs.search_path_dirs
-                                        .entry(search.clone())
-                                        .or_default()
-                                        .push(PathBuf::from(glob_child_path));
-                                }
-                            }
-                        }
-                    } else {
-                        let test_path = fs.root_path.join(&path);
-                        // dbg!(&fs.root_path, &path, &test_path); // todo: debug
-                        // dbg!(&test_path);
-                        if test_path.exists() {
-                            fs.search_path_dirs
-                                .entry(search.clone())
-                                .or_default()
-                                .push(PathBuf::from(&path));
-
-                            // Directory search paths in Source implicitly mount local VPK archives
-                            mount_dir_archives::<P>(
-                                &mut fs.search_path_vpks,
-                                &mut pack_cache,
-                                &test_path,
-                                search,
-                            )?;
-
-                            // Automatically populate `gamebin` and `mod` depending on context
-                            if search == "game" {
-                                fs.search_path_dirs
-                                    .entry("gamebin".to_string())
-                                    .or_default()
-                                    .push(PathBuf::from(format!("{}/bin", path)));
-
-                                if i == 0 {
-                                    fs.search_path_dirs
-                                        .entry("mod".to_string())
-                                        .or_default()
-                                        .push(PathBuf::from(&path));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Setup default path overrides
-        let exec_paths = fs.search_path_dirs.entry("executable_path".to_string()).or_default();
-        if let Some(plat) = &options.bin_platform {
-            let plat_path = fs.root_path.join("bin").join(plat);
-            if plat_path.exists() {
-                exec_paths.push(PathBuf::from(format!("bin/{}", plat)));
-            }
-        }
-        exec_paths.push(PathBuf::from("bin"));
-        exec_paths.push(PathBuf::from(""));
-
-        fs.search_path_dirs
-            .entry("platform".to_string())
-            .or_insert_with(|| vec![PathBuf::from("platform")]);
-
-        if let Some(game_paths) = fs.search_path_dirs.get_mut("game") {
-            let platform_buf = PathBuf::from("platform");
-            if !game_paths.contains(&platform_buf) {
-                game_paths.push(platform_buf);
-            }
-        }
-
-        fs.search_path_dirs
-            .entry("default_write_path".to_string())
-            .or_insert_with(|| vec![PathBuf::from(&game_id)]);
-
-        fs.search_path_dirs
-            .entry("logdir".to_string())
-            .or_insert_with(|| vec![PathBuf::from(&game_id)]);
-
-        fs.search_path_dirs
-            .entry("config".to_string())
-            .or_insert_with(|| vec![PathBuf::from("platform/config")]);
-
-        Ok(fs)
+    /// Appends a loose directory to `search_path` (lowest priority so far)
+    pub fn mount_dir(&mut self, search_path: &str, dir: impl AsRef<Path>) {
+        let dir = self.root_path.join(dir);
+        self.push_mount(search_path, Mount::Dir(dir));
     }
 
-    pub fn root_path(&self) -> &PathBuf {
+    /// Appends a pack to `search_path` (lowest priority so far)
+    pub fn mount_vpk(&mut self, search_path: &str, vpk_path: impl AsRef<Path>) -> Result<()> {
+        let path = self.root_path.join(vpk_path);
+        if let Some(pack) = P::open(&path).map_err(|e| Error::pack(path, e))? {
+            self.push_mount(search_path, Mount::Pack(Arc::new(pack)));
+        }
+        Ok(())
+    }
+
+    /// The same location reached twice keeps only its first (highest) position
+    pub(crate) fn push_mount(&mut self, search_path: &str, mount: Mount<P>) {
+        let mounts = self.search_paths.entry(search_path.to_lowercase()).or_default();
+        if !mounts.contains(&mount) {
+            mounts.push(mount);
+        }
+    }
+
+    pub fn root_path(&self) -> &Path {
         &self.root_path
     }
 
-    pub fn search_path_dirs(&self) -> &HashMap<String, Vec<PathBuf>> {
-        &self.search_path_dirs
+    pub fn search_paths(&self) -> &HashMap<String, Vec<Mount<P>>> {
+        &self.search_paths
     }
 
-    pub fn search_path_dirs_mut(&mut self) -> &mut HashMap<String, Vec<PathBuf>> {
-        &mut self.search_path_dirs
+    /// Mounts of one search path ID, highest priority first
+    pub fn mounts(&self, search_path: &str) -> &[Mount<P>] {
+        // todo: remove alloc here
+        self.search_paths
+            .get(&search_path.to_lowercase())
+            .map_or(&[], Vec::as_slice)
     }
 
-    pub fn search_path_vpks(&self) -> &HashMap<String, Vec<Arc<P>>> {
-        &self.search_path_vpks
+    fn locate(&self, file_path: &str, search_path: &str) -> Option<(Hit<'_, P>, String)> {
+        let normalized = utils::normalize_path(file_path);
+        let hit = self.mounts(search_path).iter().find_map(|mount| match mount {
+            Mount::Dir(dir) => utils::resolve_path_case_insensitive(dir, &normalized).map(Hit::Loose),
+            Mount::Pack(pack) => pack.has_entry(&normalized).then_some(Hit::Packed(pack)),
+        })?;
+
+        Some((hit, normalized))
     }
 
-    pub fn search_path_vpks_mut(&mut self) -> &mut HashMap<String, Vec<Arc<P>>> {
-        &mut self.search_path_vpks
+    /// Finds which mount serves a virtual path without opening the file.
+    ///
+    /// Unlike [`find_asset`](Self::find_asset), expects an exact, fully-qualified
+    /// relative path (e.g. `"materials/models/player/body.vmt"`).
+    pub fn find(&self, file_path: &str, search_path: &str) -> Option<FileLocation<P>> {
+        let (hit, normalized) = self.locate(file_path, search_path)?;
+        Some(match hit {
+            Hit::Loose(path) => FileLocation::Loose(path),
+            Hit::Packed(pack) => FileLocation::Packed {
+                pack: Arc::clone(pack),
+                entry: normalized,
+            },
+        })
     }
 
-    /// Formats an asset path, safely preventing duplicated prefixes or suffixes.
-    fn format_asset_path(name: &str, prefix: &str, suffix: &str) -> String {
-        let mut path = String::with_capacity(name.len() + prefix.len() + suffix.len());
-        if !prefix.is_empty() && !name.starts_with(prefix) {
-            path.push_str(prefix);
-        }
-        path.push_str(name);
-        if !suffix.is_empty() && !name.ends_with(suffix) {
-            path.push_str(suffix);
-        }
-
-        path
-    }
-
-    pub fn find_file(&self, file_path: &str, search_path: &str) -> Option<PathBuf> {
-        let file_path_str = utils::normalize_slashes(&file_path.to_lowercase(), true, false);
-        let search_path_str = search_path.to_lowercase();
-
-        if let Some(dirs) = self.search_path_dirs.get(&search_path_str) {
-            for base_path in dirs {
-                let base_dir = self.root_path.join(base_path);
-                if let Some(resolved_path) = utils::resolve_path_case_insensitive(&base_dir, &file_path_str) {
-                    return Some(resolved_path);
-                }
-            }
-        }
-
-        None
+    pub fn exists(&self, path: &str, search_path: &str) -> bool {
+        self.locate(path, search_path).is_some()
     }
 
     /// Opens a file from the mounted paths without reading it into memory.
-    pub fn open(
-        &self,
-        file_path: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<FileReader<'_, P>>, FileSystemError> {
-        let file_path = utils::normalize_slashes(&file_path.to_lowercase(), true, false);
-        let search_path = search_path.to_lowercase();
-
-        if prioritize_vpks {
-            if let Some(file) = self.open_from_vpks(&search_path, &file_path)? {
-                return Ok(Some(file));
-            }
-        }
-
-        if let Some(path) = self.find_file(&file_path, &search_path) {
-            let file = std::fs::File::open(&path).map_err(|source| FileSystemError::Io {
-                path,
-                source,
-            })?;
-            return Ok(Some(FileReader::Loose(file)));
-        }
-
-        if !prioritize_vpks {
-            return self.open_from_vpks(&search_path, &file_path);
-        }
-
-        Ok(None)
-    }
-
-    /// Reads data from the internal mounted paths using standard Source Engine priorities.
-    pub fn read(
-        &self,
-        file_path: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<Vec<u8>>, FileSystemError> {
-        let Some(mut file) = self.open(file_path, search_path, prioritize_vpks)? else {
-            return Ok(None);
+    pub fn open(&self, file_path: &str, search_path: &str) -> Result<FileReader<'_, P>> {
+        let Some((hit, normalized)) = self.locate(file_path, search_path) else {
+            return Err(Error::not_found(file_path, search_path));
         };
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).map_err(|source| FileSystemError::Io {
-            path: PathBuf::from(file_path),
-            source,
-        })?;
-        Ok(Some(data))
-    }
-
-    /// Same as `open`, but an active map pack gets the highest priority.
-    pub fn open_for_map<'a>(
-        &'a self,
-        map_pack: Option<&'a P>,
-        file_path: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<FileReader<'a, P>>, FileSystemError> {
-        if let Some(map) = map_pack {
-            if map.has_entry(file_path) {
-                let file = map
-                    .open_entry(file_path)
-                    .map_err(|error| FileSystemError::pack_entry(file_path.to_string(), error))?;
-                return Ok(Some(FileReader::Packed(file)));
-            }
+        match hit {
+            Hit::Loose(path) => open_loose(&path),
+            Hit::Packed(pack) => open_packed(pack.as_ref(), &normalized),
         }
-        self.open(file_path, search_path, prioritize_vpks)
     }
 
-    /// Same as `read`, but an active map pack gets the highest priority.
-    pub fn read_for_map(
-        &self,
-        map_pack: Option<&P>,
-        file_path: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<Vec<u8>>, FileSystemError> {
-        let Some(mut file) = self.open_for_map(
-            map_pack,
-            file_path,
-            search_path,
-            prioritize_vpks,
-        )? else {
-            return Ok(None);
-        };
-        let mut data = Vec::new();
-        file.read_to_end(&mut data).map_err(|source| FileSystemError::Io {
-            path: PathBuf::from(file_path),
-            source,
-        })?;
-        Ok(Some(data))
+    pub fn read(&self, file_path: &str, search_path: &str) -> Result<Vec<u8>> {
+        self.open(file_path, search_path)
+            .and_then(|file| read_all(file, file_path))
     }
 
-    pub fn read_str(
-        &self,
-        file_path: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<String>, FileSystemError> {
-        let Some(data) = self.read(file_path, search_path, prioritize_vpks)? else {
-            return Ok(None);
-        };
-        String::from_utf8(data)
-            .map(Some)
-            .map_err(|source| FileSystemError::Utf8 {
-                path: file_path.to_string(),
-                source,
-            })
+    pub fn read_str(&self, file_path: &str, search_path: &str) -> Result<String> {
+        self.read(file_path, search_path)
+            .and_then(|data| into_string(data, file_path))
     }
 
-    /// Finds an asset's PathBuf without reading its contents into memory.
-    pub fn find_asset(&self, name: &str, prefix: &str, suffix: &str, search_path: &str) -> Option<PathBuf> {
-        let path = Self::format_asset_path(name, prefix, suffix);
-        self.find_file(&path, search_path)
+    pub fn read_material(&self, name: &str, search_path: &str) -> Result<String> {
+        let path = asset_path(name, "materials", "vmt");
+        self.read_str(&path, search_path)
     }
 
-    /// Opens any asset, safely appending its prefix and suffix when missing.
-    pub fn open_asset(
-        &self,
-        name: &str,
-        prefix: &str,
-        suffix: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<FileReader<'_, P>>, FileSystemError> {
-        let path = Self::format_asset_path(name, prefix, suffix);
-        self.open(&path, search_path, prioritize_vpks)
+    pub fn read_model(&self, name: &str, search_path: &str) -> Result<Vec<u8>> {
+        let path = asset_path(name, "models", "mdl");
+        self.read(&path, search_path)
     }
 
-    /// Reads any asset as raw bytes, safely appending prefix and suffix if missing.
-    pub fn read_asset(
-        &self,
-        name: &str,
-        prefix: &str,
-        suffix: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<Vec<u8>>, FileSystemError> {
-        let path = Self::format_asset_path(name, prefix, suffix);
-        self.read(&path, search_path, prioritize_vpks)
+    pub fn read_sound(&self, name: &str, search_path: &str) -> Result<Vec<u8>> {
+        let path = asset_path(name, "sound", "");
+        self.read(&path, search_path)
     }
 
-    /// Reads any asset as a UTF-8 string, safely appending prefix and suffix if missing.
-    pub fn read_asset_str(
-        &self,
-        name: &str,
-        prefix: &str,
-        suffix: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<String>, FileSystemError> {
-        let path = Self::format_asset_path(name, prefix, suffix);
-        self.read_str(&path, search_path, prioritize_vpks)
+    /// Finds an asset by name, folder, and extension without opening the file.
+    ///
+    /// Wraps the name using [`asset_path`] (e.g. `find_asset("models/player/body", "materials", "vmt", "game")`
+    /// resolves to `"materials/models/player/body.vmt"`).
+    pub fn find_asset(&self, name: &str, folder: &str, ext: &str, search_path: &str) -> Option<FileLocation<P>> {
+        self.find(&asset_path(name, folder, ext), search_path)
+    }
+}
+
+/// Turns an asset reference as written in VMT/MDL/VMF (`metal/wall`, `materials/metal/wall.vmt`)
+/// into its VFS path, adding `folder/` and `.ext` only when missing
+pub fn asset_path<'a>(name: &'a str, folder: &str, ext: &str) -> Cow<'a, str> {
+    let folder = folder.trim_matches(['/', '\\']);
+    let ext = ext.trim_start_matches('.');
+    let clean_name = name.trim_matches(['/', '\\']);
+
+    let has_folder = has_prefix_folder(clean_name, folder);
+    let has_ext = has_suffix_ext(clean_name, ext);
+
+    if has_folder && has_ext {
+        // hooray - happy path
+        return Cow::Borrowed(clean_name);
     }
 
-    /// Reads a material file (.vmt).
-    pub fn read_material(
-        &self,
-        name: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<Vec<u8>>, FileSystemError> {
-        self.read_asset(name, "materials/", ".vmt", search_path, prioritize_vpks)
+    let mut path = String::with_capacity(
+        clean_name.len() + folder.len() + ext.len() + 2
+    );
+
+    if !has_folder {
+        path.push_str(folder);
+        path.push('/');
     }
 
-    /// Reads a material file (.vmt) as a UTF-8 string.
-    pub fn read_material_str(
-        &self,
-        name: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<String>, FileSystemError> {
-        self.read_asset_str(name, "materials/", ".vmt", search_path, prioritize_vpks)
+    path.push_str(clean_name);
+
+    if !has_ext {
+        path.push('.');
+        path.push_str(ext);
     }
 
-    /// Reads a model file (.mdl).
-    pub fn read_model(
-        &self,
-        name: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<Vec<u8>>, FileSystemError> {
-        self.read_asset(name, "models/", ".mdl", search_path, prioritize_vpks)
-    }
+    Cow::Owned(path)
+}
 
-    /// Reads a model file (.mdl) as a UTF-8 string.
-    pub fn read_model_str(
-        &self,
-        name: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<String>, FileSystemError> {
-        self.read_asset_str(name, "models/", ".mdl", search_path, prioritize_vpks)
-    }
+fn into_string(data: Vec<u8>, path: &str) -> Result<String> {
+    String::from_utf8(data).map_err(|source| Error::Utf8 {
+        path: path.to_owned(),
+        source,
+    })
+}
 
-    /// Reads a sound file (.wav or fallback to .mp3) as a UTF-8 string.
-    pub fn read_sound_str(
-        &self,
-        name: &str,
-        search_path: &str,
-        prioritize_vpks: bool,
-    ) -> Result<Option<String>, FileSystemError> {
-        if let Some(data) =
-            self.read_asset_str(name, "sound/", ".wav", search_path, prioritize_vpks)?
-        {
-            return Ok(Some(data));
+fn has_prefix_folder(name: &str, folder: &str) -> bool {
+    if folder.is_empty() {
+        return true;
+    }
+    match name.get(..folder.len()) {
+        Some(prefix) if prefix.eq_ignore_ascii_case(folder) => {
+            name[folder.len()..].starts_with(['/', '\\'])
         }
-
-        let clean_name = name.strip_suffix(".wav").unwrap_or(name);
-        self.read_asset_str(clean_name, "sound/", ".mp3", search_path, prioritize_vpks)
+        _ => false,
     }
+}
 
-    fn open_from_vpks<'a>(
-        &'a self,
-        search_path: &str,
-        file_path: &str,
-    ) -> Result<Option<FileReader<'a, P>>, FileSystemError> {
-        if let Some(vpks) = self.search_path_vpks.get(search_path) {
-            for vpk in vpks {
-                if vpk.has_entry(file_path) {
-                    let file = vpk
-                        .open_entry(file_path)
-                        .map_err(|error| FileSystemError::pack_entry(file_path.to_string(), error))?;
-                    return Ok(Some(FileReader::Packed(file)));
-                }
-            }
-        }
-        Ok(None)
+fn has_suffix_ext(name: &str, ext: &str) -> bool {
+    if ext.is_empty() {
+        return true;
+    }
+    match name.rsplit_once('.') {
+        Some((stem, suffix)) => !stem.is_empty() && suffix.eq_ignore_ascii_case(ext),
+        None => false,
     }
 }

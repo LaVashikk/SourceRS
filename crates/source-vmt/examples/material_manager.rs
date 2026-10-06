@@ -7,9 +7,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Initialize MaterialSystem.
         // It now requires a FileSystem. We can create a basic one from a path.
         // For this example, we'll use a dummy/empty path or the example game path.
-        let mut mat_sys = MaterialSystem::<source_fs::providers::DummyVpk>::from_path("examples/pseudo_game/game")?
-            .with_search_path("game")
-            .prioritize_vpks(true);
+        let mut mat_sys = MaterialSystem::from_path("examples/pseudo_game/game")?
+            .with_search_path("game");
 
         // Setup a Fallback material
         let mut error_vmt = Vmt::new("UnlitGeneric");

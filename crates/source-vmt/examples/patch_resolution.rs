@@ -6,9 +6,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Initialize MaterialSystem directly from a game path.
         // This uses source_fs::create_fs internally to parse gameinfo.txt.
-        let mut mat_sys = source_vmt::MaterialSystem::<source_fs::providers::DummyVpk>::from_path("examples/pseudo_game/game")?
-            .with_search_path("game")
-            .prioritize_vpks(false);
+        let mut mat_sys = source_vmt::MaterialSystem::from_path("examples/pseudo_game/game")?
+            .with_search_path("game");
 
         println!("Loading 'materials/wall_mossy.vmt'...");
 

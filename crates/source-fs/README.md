@@ -15,73 +15,88 @@ use source_fs::create_fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fs = create_fs("path/to/Half-Life 2/hl2")?;
+    let content = fs.read_str("scripts/game_sounds.txt", "game")?;
+    println!("Found file!\n{content}");
+    Ok(())
+}
+```
 
-    match fs.read_str("scripts/game_sounds.txt", "game", false)? {
-        Some(content) => println!("Found file!\n{content}"),
-        None => println!("File not found in the virtual filesystem."),
+Lookups walk one ordered list per search path ID, with loose dirs and VPKs interleaved as in `gameinfo.txt`. A directory's own `*_dir.vpk` archives sit above its loose files, and `dir/*` mounts every subfolder and VPK inside, alphabetically.
+
+### Finding where a file comes from
+
+```rust
+use source_fs::{create_fs, FileLocation};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let fs = create_fs("path/to/Portal 2/portal2")?;
+    match fs.find("materials/metal/black_wall_metal_002a.vmt", "game") {
+        Some(FileLocation::Loose(path)) => println!("loose file {}", path.display()),
+        Some(FileLocation::Packed { entry, .. }) => println!("packed entry {entry}"),
+        None => println!("not found"),
     }
     Ok(())
 }
 ```
 
-### Loading VPK search paths
+### Game-specific mounts
 
-`create_fs` keeps the loose-file-only behavior. Use `create_vpk_fs` when `gameinfo.txt` contains explicit `.vpk` search paths:
+`gameinfo.txt` does not describe everything a game mounts. Pick a provider that adds the rest:
+
+- `providers::SimpleGameInfo` - `gameinfo.txt` only.
+- `providers::P2GameInfo` - Portal 2: `update/` and `portal2_dlcN/` above gameinfo paths.
+- `providers::SimpleWithMount` - Garry's Mod / P2CE: games listed in `cfg/mount.cfg`.
+
+The building blocks (`providers::portal2_dlc`, `providers::mount_cfg`) are public, so combining them in your own `GameInfoProvider` takes a few lines.
 
 ```rust
-use source_fs::create_vpk_fs;
+use source_fs::providers::P2GameInfo;
+use source_fs::{FileSystem, FileSystemOptions};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let fs = create_vpk_fs("path/to/game_dir")?;
-    let bytes = fs.read("materials/example.vmt", "game", false)?
-        .ok_or("material not found")?;
-
-    println!("read {} bytes", bytes.len());
-    Ok(())
-}
+let options = FileSystemOptions {
+    // Sourcemods resolve `hl2`, `platform` etc. against the SDK Base install
+    base_dir: Some("path/to/Source SDK Base 2013 Singleplayer".into()),
+    ..Default::default()
+};
+let fs: FileSystem = FileSystem::load_from_path::<P2GameInfo>("path/to/portal2".as_ref(), &options)?;
 ```
-
-`Vpk` is also re-exported for direct use with the generic API: `FileSystem::<source_fs::Vpk>::load_from_path(...)`.
 
 ### Using Steam auto-discovery (requires `steam` feature)
 
-```toml
-[dependencies]
-source-fs = { version = "0.1.0", features = ["steam"] }
-```
-
 ```rust
 #[cfg(feature = "steam")]
-use source_fs::{FileSystem, FileSystemOptions, SimpleGameInfo, providers::DummyVpk};
+use source_fs::providers::P2GameInfo;
+#[cfg(feature = "steam")]
+use source_fs::{FileSystem, FileSystemOptions};
 
 #[cfg(feature = "steam")]
 fn main() {
-    let options = FileSystemOptions::default();
-    
-    // Automatically locates the Steam installation and mounts Portal 2 (AppID 620)
-    let fs = FileSystem::<DummyVpk>::load_from_app_id::<SimpleGameInfo>(620, "portal2", &options)
+    // Locates the Steam installation and mounts Portal 2 (AppID 620)
+    let fs: FileSystem = FileSystem::load_from_app_id::<P2GameInfo>(620, "portal2", &FileSystemOptions::default())
         .expect("Failed to locate game via Steam");
 
     let file = fs
-        .read_str("scripts/vscripts/mapspawn.nut", "game", false)
-        .expect("Failed to read file")
-        .expect("File not found");
+        .read_str("scripts/vscripts/mapspawn.nut", "game")
+        .expect("Failed to read file");
     println!("Found file:\n{}", file);
 }
 ```
 
+## Features
+
+- `vpk` (default) - mounts VPK archives through `source-vpk`. Without it `DefaultPack` is `DummyVpk` and only loose files are visible.
+- `steam` - `FileSystem::load_from_app_id`.
+
 ## API
 
-- `source_fs::create_fs` - Initialize a loose-file-only filesystem.
-- `source_fs::create_vpk_fs` - Initialize a filesystem with VPK search paths enabled.
-- `source_fs::VpkFileSystem` - Convenience alias for `FileSystem<source_fs::Vpk>`.
-- `source_fs::FileSystem` - The core struct managing search paths and mounted archives.
-  - `.load_from_path::<G>()` - Load custom `GameInfoProvider`.
-  - `.read()` - Read a file as raw bytes (`Vec<u8>`).
-  - `.read_str()` - Read a file as a UTF-8 String.
-  - `find_file()` - Find a file in the virtual filesystem.
-- `source_fs::traits::PackFile` - Abstract trait to implement your own VPK parser.
-- `source_fs::traits::GameInfoProvider` - Abstract trait to parse custom game configurations (e.g. Portal 2 DLC system).
+- `source_fs::create_fs` - Load a game dir with `SimpleGameInfo` and the default pack backend.
+- `source_fs::FileSystem` - Search path IDs mapped to ordered mounts.
+  - `.load_from_path::<G>()` / `.load_from_app_id::<G>()` - Load with a `GameInfoProvider`.
+  - `.find()` / `.find_asset()` - Where a file comes from (`FileLocation::Loose` / `FileLocation::Packed`).
+  - `.open()` / `.read()` / `.read_str()` - Stream or read a file.
+  - `.mount_dir()` / `.mount_vpk()` - Build a filesystem by hand.
+- `source_fs::PackFile` - Abstract trait to plug in your own archive backend.
+- `source_fs::providers::GameInfoProvider` - Turns a game install into search paths.
 
 ## License
 MIT License.
