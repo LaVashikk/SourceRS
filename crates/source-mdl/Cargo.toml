@@ -1,0 +1,28 @@
+[package]
+name = "source-mdl"
+description = "Fast, safe and feature-gated support for Source Engine studio models."
+readme = "README.md"
+keywords = ["source-engine", "mdl", "model", "gamedev"]
+categories = ["game-development", "parser-implementations"]
+repository = "https://github.com/LaVashikk/SourceRS/tree/main/crates/source-mdl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+serde = { workspace = true, optional = true }
+source-fs = { workspace = true, optional = true }
+source-vmt = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+source-vpk.workspace = true
+tempfile.workspace = true
+
+[features]
+default = []
+serde = ["dep:serde", "bitflags/serde"]
+model_system = ["dep:source-fs", "dep:source-vmt", "source-vmt/material_system"]
