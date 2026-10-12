@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 # Lockstep: every crate in the monorepo ships under a single version
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -12,12 +12,13 @@ authors = ["LaVashikk <contact@lavashik.dev>"]
 repository = "https://github.com/LaVashikk/SourceRS"
 
 [workspace.dependencies]
-source-kv =  { version = "0.5", path = "crates/source-kv" }
-source-fs =  { version = "0.5", path = "crates/source-fs" }
-source-vpk = { version = "0.5", path = "crates/source-vpk" }
-source-vtf = { version = "0.5", path = "crates/source-vtf" }
-source-vmt = { version = "0.5", path = "crates/source-vmt" }
-source-vmf = { version = "0.5", path = "crates/source-vmf" }
+source-kv =  { version = "0.6", path = "crates/source-kv" }
+source-fs =  { version = "0.6", path = "crates/source-fs" }
+source-vpk = { version = "0.6", path = "crates/source-vpk" }
+source-vtf = { version = "0.6", path = "crates/source-vtf" }
+source-vmt = { version = "0.6", path = "crates/source-vmt" }
+source-vmf = { version = "0.6", path = "crates/source-vmf" }
+source-mdl = { version = "0.6", path = "crates/source-mdl" } # todo!
 
 bitflags = "2.9"
 crc32fast = "1.5"

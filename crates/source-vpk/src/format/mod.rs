@@ -45,7 +45,7 @@ pub struct ArchiveMd5Entry {
     pub checksum: [u8; 16],
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)] // todo: add PartialEq?
 pub(crate) struct Header {
     pub(crate) version: Version,
     pub(crate) tree_size: u32,

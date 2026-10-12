@@ -855,7 +855,7 @@ checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
 
 [[package]]
 name = "source-fs"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "crc32fast",
  "source-vpk",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "source-kv"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "indexmap",
  "serde",
@@ -875,8 +875,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "source-mdl"
+version = "0.6.0"
+dependencies = [
+ "bitflags",
+ "serde",
+ "source-fs",
+ "source-vmt",
+ "source-vpk",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "source-vmf"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "derive_more",
@@ -890,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "source-vmt"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "dashmap",
@@ -902,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "source-vpk"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "crc32fast",
  "indexmap",
@@ -914,11 +927,12 @@ dependencies = [
 
 [[package]]
 name = "source-vtf"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "bitflags",
  "num_enum",
  "serde",
+ "source-vpk",
  "tempfile",
  "thiserror",
 ]

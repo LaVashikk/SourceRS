@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BatchSize};
-use source_vmt::{Vmt, Value, intern_key};
+use source_vmt::Vmt;
 
 const VMT_TEMPLATE: &str = r#"
     "VertexLitGeneric"
@@ -24,7 +24,7 @@ const VMT_TEMPLATE: &str = r#"
 fn bench_vmt_stress(c: &mut Criterion) {
     // 1. Single VMT Benchmarks (Baseline)
     let mut group = c.benchmark_group("vmt_core");
-    
+
     group.bench_function("parse_single", |b| {
         b.iter(|| Vmt::from_str(black_box(VMT_TEMPLATE)).unwrap())
     });
@@ -33,13 +33,13 @@ fn bench_vmt_stress(c: &mut Criterion) {
     group.bench_function("serialize_single", |b| {
         b.iter(|| black_box(&vmt).to_string().unwrap())
     });
-    
+
     group.finish();
 
     // 2. Batch Parsing (100 VMTs)
     let mut group = c.benchmark_group("vmt_batch");
     let batch_input: Vec<String> = (0..100).map(|i| VMT_TEMPLATE.replace("heavy_red", &format!("heavy_red_{}", i))).collect();
-    
+
     group.bench_function("parse_100_vmts", |b| {
         b.iter(|| {
             for input in &batch_input {
