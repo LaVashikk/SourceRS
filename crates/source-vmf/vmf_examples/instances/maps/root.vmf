@@ -1,0 +1,52 @@
+entity
+{
+	"id" "1"
+	"classname" "func_instance"
+	"targetname" "room_a"
+	"file" "instances/room.vmf"
+	"origin" "100 0 0"
+	"angles" "0 0 0"
+}
+entity
+{
+	"id" "2"
+	"classname" "func_instance"
+	"targetname" "room_b"
+	"file" "instances/room"
+	"origin" "0 0 0"
+	"angles" "0 90 0"
+}
+entity
+{
+	"id" "3"
+	"classname" "func_instance"
+	"targetname" "broken"
+	"file" "instances/missing.vmf"
+	"origin" "0 0 0"
+}
+entity
+{
+	"id" "4"
+	"classname" "func_instance"
+	"targetname" "tower"
+	"file" "instances/tower.vmf"
+	"origin" "0 0 500"
+	"angles" "0 180 0"
+}
+entity
+{
+	"id" "5"
+	"classname" "light"
+	"origin" "0 0 64"
+}
+hidden
+{
+	entity
+	{
+		"id" "6"
+		"classname" "func_instance"
+		"targetname" "hidden_tower"
+		"file" "instances/tower.vmf"
+		"origin" "0 0 -500"
+	}
+}

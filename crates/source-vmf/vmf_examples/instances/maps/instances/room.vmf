@@ -1,0 +1,9 @@
+entity
+{
+	"id" "1"
+	"classname" "func_instance"
+	"targetname" "lamp"
+	"file" "lamp.vmf"
+	"origin" "10 0 0"
+	"angles" "0 0 0"
+}

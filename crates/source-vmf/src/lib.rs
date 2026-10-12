@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod parse_ctx;
 pub mod parser;
+pub mod system;
+pub mod transform;
 pub(crate) mod utils;
 pub mod vmf;
 
@@ -47,6 +49,8 @@ pub trait VmfSerializable {
     fn to_vmf_string(&self, indent_level: usize) -> String;
 }
 
+pub use system::{Flattened, Instance, VmfSystem};
+pub use transform::Transform;
 pub use vmf::{EntId, EntityIndex, VmfFile};
 
 /// Preserves unrecognized keys and nested blocks during parsing for lossless round-tripping.

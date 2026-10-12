@@ -14,6 +14,8 @@
 //! ```
 
 pub use crate::VmfFile;
+pub use crate::system::{Flattened, Instance, VmfSystem};
+pub use crate::transform::Transform;
 pub use crate::vmf::{EntId, EntityIndex};
 
 pub use crate::errors::{VmfError, VmfResult};

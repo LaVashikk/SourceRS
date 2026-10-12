@@ -1,0 +1,15 @@
+entity
+{
+	"id" "17"
+	"classname" "light_spot"
+	"origin" "1 0 0"
+	"angles" "-45.112 0 0"
+}
+entity
+{
+	"id" "08"
+	"classname" "func_instance"
+	"targetname" "loop"
+	"file" "instances/room.vmf"
+	"origin" "0 0 0"
+}
