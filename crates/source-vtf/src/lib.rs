@@ -1,24 +1,22 @@
 #![forbid(unsafe_code)]
 
-//! Pure Rust access to Valve Texture Format files.
+//! Pure Rust access to Valve Texture Format files
 //!
-//! The reader supports PC VTF 7.0 through 7.5. It keeps the original bytes in
-//! place and returns borrowed views for thumbnails, resources, and individual
-//! mip/frame/face/depth subresources.
+//! Reads PC VTF 7.0 through 7.5 without copying: thumbnails, resources and every mip, frame, face and slice are slices of the original bytes
 
 mod cursor;
 mod error;
-mod flags;
-mod format;
 mod header;
-mod resource;
-mod subresource;
+mod image;
 mod vtf;
 
-pub use error::{Error, Result, Section};
-pub use flags::TextureFlags;
-pub use format::ImageFormat;
-pub use header::{Header, Version};
-pub use resource::{Resource, ResourceFlags, ResourceLocation, ResourceTag};
-pub use subresource::RawImage;
+pub use error::{Error, Result};
+pub use header::{Header, Resource, ResourceLocation, ResourceTag, TextureFlags, Version};
+pub use image::{ImageFormat, RawImage};
 pub use vtf::Vtf;
+
+/// A [`Vtf`] that owns its underlying byte buffer in heap memory.
+///
+/// Returned by [`Vtf::open`]. Unlike borrowed [`Vtf`] instances, this owns its file bytes
+/// and can be stored in long-lived caches or sent across threads without lifetime parameters.
+pub type OwnedVtf = Vtf<'static>;

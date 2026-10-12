@@ -18,6 +18,7 @@ thiserror.workspace = true
 serde = { workspace = true, optional = true }
 
 [dev-dependencies]
+source-vpk.workspace = true # for local testing
 tempfile.workspace = true
 
 [features]

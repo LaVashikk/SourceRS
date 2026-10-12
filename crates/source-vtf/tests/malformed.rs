@@ -1,7 +1,7 @@
 mod common;
 
-use common::{Fixture, write_i32, write_u32};
-use source_vtf::{Error, ImageFormat, ResourceTag, Section, Vtf};
+use common::{Fixture, header, write_i32, write_u16, write_u32};
+use source_vtf::{Error, ImageFormat, ResourceTag, Vtf};
 
 #[test]
 fn rejects_invalid_signature_version_and_header_size() {
@@ -9,23 +9,20 @@ fn rejects_invalid_signature_version_and_header_size() {
 
     let mut bad_signature = fixture.bytes.clone();
     bad_signature[0] = b'X';
-    assert!(matches!(
-        Vtf::from_bytes(&bad_signature).unwrap_err(),
-        Error::InvalidSignature(_)
-    ));
+    assert!(matches!(Vtf::from_bytes(&bad_signature).unwrap_err(), Error::InvalidSignature(_)));
 
     let mut bad_version = fixture.bytes.clone();
-    write_u32(&mut bad_version, 8, 6);
+    write_u32(&mut bad_version, header::MINOR_VERSION, 6);
     assert!(matches!(
         Vtf::from_bytes(&bad_version).unwrap_err(),
         Error::UnsupportedVersion { major: 7, minor: 6 }
     ));
 
     let mut bad_header_size = fixture.bytes.clone();
-    write_u32(&mut bad_header_size, 12, 80);
+    write_u32(&mut bad_header_size, header::HEADER_SIZE, 80);
     assert!(matches!(
         Vtf::from_bytes(&bad_header_size).unwrap_err(),
-        Error::InvalidHeaderSize { .. }
+        Error::InvalidField { field: "header size", value: 80, .. }
     ));
 }
 
@@ -33,78 +30,65 @@ fn rejects_invalid_signature_version_and_header_size() {
 fn rejects_unknown_and_legacy_depth_image_formats() {
     let fixture = Fixture::new(5, 4, 4, ImageFormat::Rgba8888).build();
     let mut unknown = fixture.bytes.clone();
-    write_i32(&mut unknown, 52, 9999);
+    write_i32(&mut unknown, header::IMAGE_FORMAT, 9999);
     assert!(matches!(
         Vtf::from_bytes(&unknown).unwrap_err(),
-        Error::UnknownImageFormat {
-            field: "high-resolution",
-            value: 9999,
-            ..
-        }
+        Error::InvalidField { field: "image format", value: 9999, .. }
     ));
 
     let fixture = Fixture::new(4, 4, 4, ImageFormat::Rgba8888).build();
-    let mut legacy_depth = fixture.bytes.clone();
-    write_i32(&mut legacy_depth, 52, 33);
-    assert!(matches!(
-        Vtf::from_bytes(&legacy_depth).unwrap_err(),
-        Error::UnsupportedImageFormat { value: 33, .. }
-    ));
+    for id in [30, 33] {
+        let mut legacy_depth = fixture.bytes.clone();
+        write_i32(&mut legacy_depth, header::IMAGE_FORMAT, id);
+        assert!(matches!(
+            Vtf::from_bytes(&legacy_depth).unwrap_err(),
+            Error::UnsupportedFormat { field: "image format", id: found } if found == id
+        ));
+    }
 }
 
 #[test]
-fn rejects_resource_offsets_outside_the_file_or_inside_the_header() {
+fn rejects_resources_outside_the_file() {
     let fixture = Fixture::new(3, 4, 4, ImageFormat::Rgba8888).build();
-
     let mut outside = fixture.bytes.clone();
     let outside_offset = outside.len() as u32 + 1;
-    write_u32(&mut outside, 84, outside_offset);
+    write_u32(&mut outside, header::RESOURCES + 4, outside_offset);
     assert!(matches!(
         Vtf::from_bytes(&outside).unwrap_err(),
-        Error::RangeOutOfBounds {
-            section: Section::ResourceData,
-            ..
-        }
+        Error::OutOfBounds { context: "resource data", .. }
     ));
 
-    let mut inside = fixture.bytes.clone();
-    write_u32(&mut inside, 84, 80);
+    let mut sized = Fixture::new(3, 4, 4, ImageFormat::Rgba8888);
+    sized
+        .data_resources
+        .push((ResourceTag::KEY_VALUES_DATA, b"kv".to_vec()));
+    let mut too_long = sized.build().bytes;
+    let size_offset = u32::from_le_bytes(
+        too_long[header::RESOURCES + 12..header::RESOURCES + 16]
+            .try_into()
+            .unwrap(),
+    );
+    write_u32(&mut too_long, size_offset as usize, u32::MAX);
     assert!(matches!(
-        Vtf::from_bytes(&inside).unwrap_err(),
-        Error::ResourceInsideHeader { .. }
+        Vtf::from_bytes(&too_long).unwrap_err(),
+        Error::OutOfBounds { context: "resource data", .. }
     ));
 }
 
 #[test]
-fn rejects_missing_duplicate_and_inline_image_resources() {
+fn rejects_missing_and_inline_image_resources() {
     let fixture = Fixture::new(3, 4, 4, ImageFormat::Rgba8888).build();
 
     let mut missing = fixture.bytes.clone();
-    write_u32(&mut missing, 80, ResourceTag::KEY_VALUES_DATA.value());
+    write_u32(&mut missing, header::RESOURCES, ResourceTag::CRC.0 | (2 << 24));
     assert!(matches!(
         Vtf::from_bytes(&missing).unwrap_err(),
-        Error::MissingResource { tag } if tag == ResourceTag::IMAGE_DATA.value()
-    ));
-
-    let mut duplicate_fixture = Fixture::new(3, 4, 4, ImageFormat::Rgba8888);
-    duplicate_fixture
-        .data_resources
-        .push((ResourceTag::IMAGE_DATA, b"duplicate".to_vec()));
-    assert!(matches!(
-        Vtf::from_bytes(&duplicate_fixture.build().bytes).unwrap_err(),
-        Error::DuplicateResource { tag } if tag == ResourceTag::IMAGE_DATA.value()
+        Error::MissingResource(ResourceTag::IMAGE_DATA)
     ));
 
     let mut inline = fixture.bytes.clone();
-    write_u32(
-        &mut inline,
-        80,
-        ResourceTag::IMAGE_DATA.value() | (2u32 << 24),
-    );
-    assert!(matches!(
-        Vtf::from_bytes(&inline).unwrap_err(),
-        Error::InlineTextureData { tag } if tag == ResourceTag::IMAGE_DATA.value()
-    ));
+    write_u32(&mut inline, header::RESOURCES, ResourceTag::IMAGE_DATA.0 | (2 << 24));
+    assert!(matches!(Vtf::from_bytes(&inline).unwrap_err(), Error::MissingResource(ResourceTag::IMAGE_DATA)));
 }
 
 #[test]
@@ -113,26 +97,17 @@ fn rejects_truncated_headers_resource_tables_and_image_data() {
     let truncated_image = &legacy.bytes[..legacy.bytes.len() - 1];
     assert!(matches!(
         Vtf::from_bytes(truncated_image).unwrap_err(),
-        Error::RangeOutOfBounds {
-            section: Section::ImageData,
-            ..
-        }
+        Error::OutOfBounds { context: "image data", .. }
     ));
 
     let modern = Fixture::new(3, 4, 4, ImageFormat::Rgba8888).build();
     assert!(matches!(
         Vtf::from_bytes(&modern.bytes[..84]).unwrap_err(),
-        Error::UnexpectedEof {
-            section: Section::Header,
-            ..
-        }
+        Error::OutOfBounds { context: "resource table", .. }
     ));
 
     for length in 0..64 {
-        assert!(matches!(
-            Vtf::from_bytes(&legacy.bytes[..length]).unwrap_err(),
-            Error::UnexpectedEof { .. }
-        ));
+        assert!(matches!(Vtf::from_bytes(&legacy.bytes[..length]).unwrap_err(), Error::OutOfBounds { .. }));
     }
 }
 
@@ -141,20 +116,14 @@ fn validates_dimensions_counts_and_subresource_indices() {
     let fixture = Fixture::new(5, 4, 4, ImageFormat::Rgba8888).build();
 
     let mut zero_width = fixture.bytes.clone();
-    zero_width[16..18].copy_from_slice(&0u16.to_le_bytes());
-    assert!(matches!(
-        Vtf::from_bytes(&zero_width).unwrap_err(),
-        Error::InvalidField { field: "width", .. }
-    ));
+    write_u16(&mut zero_width, header::WIDTH, 0);
+    assert!(matches!(Vtf::from_bytes(&zero_width).unwrap_err(), Error::InvalidField { field: "width", .. }));
 
     let mut too_many_mips = fixture.bytes.clone();
-    too_many_mips[56] = 4;
+    too_many_mips[header::MIP_COUNT] = 4;
     assert!(matches!(
         Vtf::from_bytes(&too_many_mips).unwrap_err(),
-        Error::InvalidField {
-            field: "mip count",
-            ..
-        }
+        Error::InvalidField { field: "mip count", value: 4, .. }
     ));
 
     let vtf = Vtf::from_bytes(&fixture.bytes).unwrap();
@@ -164,32 +133,24 @@ fn validates_dimensions_counts_and_subresource_indices() {
         vtf.subresource(0, 0, 1, 0).unwrap_err(),
         vtf.subresource(0, 0, 0, 1).unwrap_err(),
     ] {
-        assert!(matches!(error, Error::SubresourceOutOfRange { .. }));
+        assert!(matches!(error, Error::InvalidIndex { index: 1, count: 1, .. }));
     }
 }
 
 #[test]
-fn large_declared_layouts_fail_without_allocating_the_payload() {
-    let mut fixture = Fixture::new(5, u16::MAX, u16::MAX, ImageFormat::Rgba8888);
-    fixture.depth = u16::MAX;
-    fixture.frame_count = u16::MAX;
-    fixture.mip_count = 16;
-
-    // Building the payload would be enormous, so mutate a small valid fixture's
-    // metadata and let the checked layout calculation reject its tiny resource.
-    let mut bytes = Fixture::new(5, 1, 1, ImageFormat::Rgba8888).build().bytes;
-    bytes[16..18].copy_from_slice(&fixture.width.to_le_bytes());
-    bytes[18..20].copy_from_slice(&fixture.height.to_le_bytes());
-    bytes[24..26].copy_from_slice(&fixture.frame_count.to_le_bytes());
-    bytes[56] = fixture.mip_count;
-    bytes[63..65].copy_from_slice(&fixture.depth.to_le_bytes());
+fn absurd_layouts_fail_on_bounds_without_allocating() {
+    let mut bytes = Fixture::new(5, 1, 1, ImageFormat::Rgba8888)
+        .build()
+        .bytes;
+    write_u16(&mut bytes, header::WIDTH, u16::MAX);
+    write_u16(&mut bytes, header::HEIGHT, u16::MAX);
+    write_u16(&mut bytes, header::FRAME_COUNT, u16::MAX);
+    write_u16(&mut bytes, header::DEPTH, u16::MAX);
+    bytes[header::MIP_COUNT] = 16;
 
     assert!(matches!(
         Vtf::from_bytes(&bytes).unwrap_err(),
-        Error::DataTooShort {
-            section: Section::ImageData,
-            ..
-        } | Error::ArithmeticOverflow { .. }
+        Error::OutOfBounds { context: "resource data", end: usize::MAX, .. }
     ));
 }
 

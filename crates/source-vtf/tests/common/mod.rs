@@ -1,6 +1,24 @@
+// ==========================================================
+//     THIS PIECE OF CRAP AND EVERY TESTS GENERATED           cause im lazy do that
+// ==========================================================
+
 #![allow(dead_code)]
 
 use source_vtf::{ImageFormat, ResourceTag, TextureFlags};
+
+/// Byte offsets of `VTFFileHeaderV7_3_t` fields
+pub mod header {
+    pub const MINOR_VERSION: usize = 8;
+    pub const HEADER_SIZE: usize = 12;
+    pub const WIDTH: usize = 16;
+    pub const HEIGHT: usize = 18;
+    pub const FRAME_COUNT: usize = 24;
+    pub const IMAGE_FORMAT: usize = 52;
+    pub const MIP_COUNT: usize = 56;
+    pub const DEPTH: usize = 63;
+    /// First `ResourceEntryInfo`: the type and flags, then the offset or inline data
+    pub const RESOURCES: usize = 80;
+}
 
 #[derive(Debug, Clone)]
 pub struct ExpectedImage {
@@ -74,15 +92,7 @@ impl Fixture {
                     for slice in 0..depth {
                         let data = vec![marker; image_length];
                         image_data.extend_from_slice(&data);
-                        images.push(ExpectedImage {
-                            mip,
-                            frame,
-                            face,
-                            slice,
-                            width,
-                            height,
-                            data,
-                        });
+                        images.push(ExpectedImage { mip, frame, face, slice, width, height, data });
                         marker = marker.wrapping_add(1);
                     }
                 }
@@ -98,11 +108,7 @@ impl Fixture {
             self.build_resource_vtf(thumbnail.as_deref(), &image_data)
         };
 
-        BuiltFixture {
-            bytes,
-            images,
-            thumbnail,
-        }
+        BuiltFixture { bytes, images, thumbnail }
     }
 
     fn build_legacy(&self, thumbnail: Option<&[u8]>, image_data: &[u8]) -> Vec<u8> {
@@ -161,19 +167,29 @@ impl Fixture {
         {
             if let Payload::Data(data) = &entries[index].1 {
                 offsets[index] = Some(output.len() as u32);
+                // Same as vtex: a u32 size up front, then 0xDEADBEEF up to the next 16 bytes
+                output.extend_from_slice(&(data.len() as u32).to_le_bytes());
                 output.extend_from_slice(data);
+                let padding = (16 - output.len() % 16) % 16;
+                output.extend(
+                    0xdead_beef_u32
+                        .to_le_bytes()
+                        .iter()
+                        .cycle()
+                        .take(padding),
+                );
             }
         }
         offsets[0] = Some(output.len() as u32);
         output.extend_from_slice(image_data);
 
         for (index, (tag, payload)) in entries.iter().enumerate() {
-            let entry_offset = 80 + index * 8;
+            let entry_offset = header::RESOURCES + index * 8;
             let flags = match payload {
                 Payload::Inline(_) => 1u32 << 25,
                 Payload::Data(_) => 0,
             };
-            let type_and_flags = tag.value() | flags;
+            let type_and_flags = tag.0 | flags;
             output[entry_offset..entry_offset + 4].copy_from_slice(&type_and_flags.to_le_bytes());
             match payload {
                 Payload::Inline(data) => {
@@ -206,11 +222,11 @@ impl Fixture {
         output.extend_from_slice(&0.75f32.to_le_bytes());
         output.extend_from_slice(&[0; 4]);
         output.extend_from_slice(&1.5f32.to_le_bytes());
-        output.extend_from_slice(&self.format.id().to_le_bytes());
+        output.extend_from_slice(&(self.format as i32).to_le_bytes());
         output.push(self.mip_count);
         match self.thumbnail {
             Some((width, height)) => {
-                output.extend_from_slice(&ImageFormat::Dxt1.id().to_le_bytes());
+                output.extend_from_slice(&(ImageFormat::Dxt1 as i32).to_le_bytes());
                 output.push(width);
                 output.push(height);
             }
@@ -234,7 +250,9 @@ impl Fixture {
 }
 
 fn mip_dimension(base: u16, mip: u8) -> u16 {
-    base.checked_shr(u32::from(mip)).unwrap_or(0).max(1)
+    base.checked_shr(u32::from(mip))
+        .unwrap_or(0)
+        .max(1)
 }
 
 fn image_byte_len(format: ImageFormat, width: u16, height: u16) -> usize {
@@ -242,12 +260,14 @@ fn image_byte_len(format: ImageFormat, width: u16, height: u16) -> usize {
     let height = usize::from(height);
     match format {
         ImageFormat::Rgba8888 => width * height * 4,
-        ImageFormat::Dxt1 | ImageFormat::Dxt1OneBitAlpha => {
-            width.div_ceil(4) * height.div_ceil(4) * 8
-        }
+        ImageFormat::Dxt1 | ImageFormat::Dxt1OneBitAlpha => width.div_ceil(4) * height.div_ceil(4) * 8,
         ImageFormat::Dxt3 | ImageFormat::Dxt5 => width.div_ceil(4) * height.div_ceil(4) * 16,
         other => panic!("unsupported fixture format {other:?}"),
     }
+}
+
+pub fn write_u16(bytes: &mut [u8], offset: usize, value: u16) {
+    bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
 
 pub fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {

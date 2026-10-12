@@ -1,99 +1,59 @@
-use crate::{Error, Result, Section};
+use crate::{Error, Result};
 
-#[derive(Debug, Clone, Copy)]
+/// Little-endian fields read one after another
 pub(crate) struct Cursor<'a> {
     bytes: &'a [u8],
     position: usize,
-    section: Section,
+    context: &'static str,
 }
 
 impl<'a> Cursor<'a> {
-    pub(crate) const fn new(bytes: &'a [u8], section: Section) -> Self {
-        Self {
-            bytes,
-            position: 0,
-            section,
-        }
-    }
-
-    pub(crate) const fn position(&self) -> usize {
-        self.position
-    }
-
-    pub(crate) const fn remaining(&self) -> usize {
-        self.bytes.len() - self.position
+    pub(crate) const fn new(bytes: &'a [u8], context: &'static str) -> Self {
+        Self { bytes, position: 0, context }
     }
 
     pub(crate) fn read_u8(&mut self) -> Result<u8> {
-        Ok(self.read_array::<1>()?[0])
+        Ok(self.take::<1>()?[0])
     }
 
     pub(crate) fn read_u16(&mut self) -> Result<u16> {
-        Ok(u16::from_le_bytes(self.read_array()?))
+        Ok(u16::from_le_bytes(self.take()?))
     }
 
     pub(crate) fn read_u32(&mut self) -> Result<u32> {
-        Ok(u32::from_le_bytes(self.read_array()?))
+        Ok(u32::from_le_bytes(self.take()?))
     }
 
     pub(crate) fn read_i32(&mut self) -> Result<i32> {
-        Ok(i32::from_le_bytes(self.read_array()?))
+        Ok(i32::from_le_bytes(self.take()?))
     }
 
     pub(crate) fn read_f32(&mut self) -> Result<f32> {
-        Ok(f32::from_le_bytes(self.read_array()?))
+        Ok(f32::from_le_bytes(self.take()?))
     }
 
     pub(crate) fn skip(&mut self, length: usize) -> Result<()> {
-        self.read_bytes(length).map(|_| ())
+        range(self.bytes, self.position, length, self.context)?;
+        self.position += length;
+        Ok(())
     }
 
-    pub(crate) fn read_bytes(&mut self, length: usize) -> Result<&'a [u8]> {
-        let start = self.position;
-        let end = start.checked_add(length).ok_or(Error::ArithmeticOverflow {
-            context: "cursor range",
-        })?;
-        let bytes = self.bytes.get(start..end).ok_or_else(|| self.eof(length))?;
-        self.position = end;
-        Ok(bytes)
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N]> {
-        let mut output = [0; N];
-        output.copy_from_slice(self.read_bytes(N)?);
-        Ok(output)
-    }
-
-    fn eof(&self, needed: usize) -> Error {
-        Error::UnexpectedEof {
-            section: self.section,
-            offset: self.position,
-            needed,
-            remaining: self.remaining(),
-        }
+    fn take<const N: usize>(&mut self) -> Result<[u8; N]> {
+        let bytes = range(self.bytes, self.position, N, self.context)?;
+        self.position += N;
+        Ok(bytes.try_into().unwrap())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_values_and_tracks_the_failing_offset() {
-        let bytes = [7, 0x34, 0x12, 0, 0, 0x80, 0x3f];
-        let mut cursor = Cursor::new(&bytes, Section::Header);
-
-        assert_eq!(cursor.read_u8().unwrap(), 7);
-        assert_eq!(cursor.read_u16().unwrap(), 0x1234);
-        assert_eq!(cursor.read_f32().unwrap(), 1.0);
-        assert!(matches!(
-            cursor.read_u8().unwrap_err(),
-            Error::UnexpectedEof {
-                section: Section::Header,
-                offset: 7,
-                needed: 1,
-                remaining: 0,
-            }
-        ));
-    }
+/// `length` bytes at `offset`, or [`Error::OutOfBounds`] naming `context`
+pub(crate) fn range<'a>(
+    bytes: &'a [u8],
+    offset: usize,
+    length: usize,
+    context: &'static str,
+) -> Result<&'a [u8]> {
+    let end = offset.saturating_add(length);
+    bytes
+        .get(offset..end)
+        .ok_or(Error::OutOfBounds { context, offset, end, size: bytes.len() })
 }

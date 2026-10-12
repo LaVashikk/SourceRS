@@ -1,11 +1,9 @@
 use bitflags::bitflags;
 
 bitflags! {
-    /// Flags stored in the VTF header.
+    /// Flags stored in the VTF header
     ///
-    /// Several bits were reassigned by later Source branches. Version-qualified
-    /// aliases make those collisions explicit instead of pretending that one
-    /// interpretation is universally correct.
+    /// Later branches reused some bits, so those flags carry the version they mean that in, e.g. `SRGB_V7_4` vs `PWL_CORRECTED_V7_5`
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct TextureFlags: u32 {
@@ -15,6 +13,7 @@ bitflags! {
         const CLAMP_T = 1 << 3;
         const ANISOTROPIC = 1 << 4;
         const VTEX_HINT_DXT5 = 1 << 5;
+        // Oh yeah nice thx Valve: one bit, three meanings :skull:
         const VTEX_NO_COMPRESS_V7_0 = 1 << 6;
         const SRGB_V7_4 = 1 << 6;
         const PWL_CORRECTED_V7_5 = 1 << 6;
