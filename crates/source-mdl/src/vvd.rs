@@ -104,8 +104,10 @@ impl Vvd {
             check_fixups(&fixups, lod, expected)?;
         }
 
+        // Validate the source span before allocating from an untrusted count.
+        let records = r.records::<VERTEX_SIZE>(0, vertex_offset, vertex_count, "vertices")?;
         let mut vertices = Vec::with_capacity(vertex_count);
-        for record in r.records::<VERTEX_SIZE>(0, vertex_offset, vertex_count, "vertices")? {
+        for record in records {
             let vertex = parse_vertex(record);
             if vertex.bone_weights.count > 3 {
                 return Err(r.invalid(
