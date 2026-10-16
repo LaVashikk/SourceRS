@@ -257,13 +257,16 @@ fn parse_strip_group(r: Reader<'_>, at: usize, v49: bool) -> Result<StripGroup> 
     let strip_offset = c.read_i32()?;
     let flags = StripGroupFlags::from_bits_retain(c.read_u8()?);
 
+    // Validate the source span before allocating from an untrusted count.
+    let records = r.records::<VERTEX_SIZE>(at, vertex_offset, vertex_count, "strip group vertices")?;
     let mut vertices = Vec::with_capacity(vertex_count);
-    for record in r.records::<VERTEX_SIZE>(at, vertex_offset, vertex_count, "strip group vertices")? {
+    for record in records {
         vertices.push(parse_vertex(r, record)?);
     }
 
+    let records = r.records::<2>(at, index_offset, index_count, "strip group indices")?;
     let mut indices = Vec::with_capacity(index_count);
-    for record in r.records::<2>(at, index_offset, index_count, "strip group indices")? {
+    for record in records {
         let value = u16_at(record, 0);
         index(value, vertices.len(), "strip group vertex")?;
         indices.push(value);
