@@ -6,7 +6,8 @@ A straightforward, high-performance `serde` implementation for parsing and seria
 
 * **Full Serde Integration**: Seamlessly deserialize into custom Rust structs and serialize back using standard `#[derive(Deserialize, Serialize)]` attributes.
 * **Duplicate Key Support**: Valve's format heavily relies on duplicate keys (especially in `.vmf` files). `source-kv` natively handles this-just map repeated keys to a `Vec<T>`.
-* **Order Preservation**: Internally uses `IndexMap` to guarantee that the order of properties and blocks is preserved during serialization.
+* **Order Preservation**: `Value::Obj` is a plain `Vec` of entries, so the file order (duplicates included) survives a parse and write.
+* **Zero-copy parsing**: `from_str` borrows tokens straight from the input and builds no intermediate tree of owned strings; `&str` fields work with `#[serde(borrow)]`.
 * **Syntax Tolerance**: Safely handles unquoted keys, C-style line comments (`//`), and implicitly converts integer/boolean strings into native Rust types.
 * **Dynamic / Untyped API**: Don't want to write static structs? Parse files directly into a generic `source_kv::Value` (AST) and easily convert specific nodes to typed structs later using `from_value`.
 
@@ -70,7 +71,7 @@ Sometimes you don't know the exact structure upfront. You can parse the document
 
 ```rust
 use serde::Deserialize;
-use source_kv::{Deserializer, Value, from_value};
+use source_kv::{Value, from_value};
 
 #[derive(Debug, Deserialize)]
 struct ToolConfig {
@@ -93,8 +94,7 @@ fn main() -> Result<(), source_kv::Error> {
     "#;
 
     // Parse into an untyped Value tree
-    let mut de = Deserializer::from_str(input);
-    let root: Value = de.parse_root()?;
+    let root: Value = input.parse()?;
 
     // Traverse the AST natively
     if let Some(portal_config) = root.get("Configs")
@@ -102,7 +102,7 @@ fn main() -> Result<(), source_kv::Error> {
         .and_then(|g| g.get("Portal 2")) 
     {
         // Convert the specific untyped block into a typed Rust struct
-        let config: ToolConfig = from_value(portal_config.clone())?;
+        let config: ToolConfig = from_value(portal_config)?;
         println!("Executable: {}", config.game_exe);
     }
 
@@ -114,8 +114,9 @@ fn main() -> Result<(), source_kv::Error> {
 
 - `source_kv::from_str` - Deserialize a KeyValues string directly into a typed struct `T`.
 - `source_kv::to_string` - Serialize a typed struct `T` back into KeyValues format.
-- `source_kv::Value` - An enum representing the AST (`Str` or `Obj`), offering ergonomic getters like `.get(key)` and `.get_string(key)`.
-- `source_kv::from_value` - Convert an existing AST `Value` node into a Serde-compatible struct `T`.
+- `source_kv::Value` - An enum representing the AST: `Str(String)` or `Obj(Vec<(String, Value)>)`, with case-insensitive getters like `.get(key)`, `.get_all(key)` and `.get_string(key)`. Parse a whole document with `text.parse::<Value>()`.
+- `source_kv::from_value` - Convert an existing AST `Value` node (owned or borrowed) into a Serde-compatible struct `T`.
+- `source_kv::to_value` - Serialize a typed struct `T` into a `Value`.
 
 ## License
 MIT License.

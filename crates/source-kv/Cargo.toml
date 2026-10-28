@@ -14,7 +14,7 @@ authors.workspace = true
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
-indexmap = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+indexmap = { workspace = true, features = ["serde"] }
 serde_derive.workspace = true
