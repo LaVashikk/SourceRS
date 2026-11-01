@@ -355,3 +355,37 @@ fn bad_number_shows_the_value() {
     let err = from_str::<Simple>("key k num 1.5").unwrap_err();
     assert_eq!(err.to_string(), "invalid number \"1.5\"");
 }
+
+#[test]
+fn repeated_key_into_a_single_value_is_an_error() {
+    let err = from_str::<IndexMap<String, Value>>("solid { id 1 } solid { id 2 }").unwrap_err();
+    assert!(err.to_string().contains("\"solid\" is repeated"), "{err}");
+    let all = from_str::<IndexMap<String, Vec<Value>>>("solid { id 1 } solid { id 2 }").unwrap();
+    assert_eq!(all["solid"].len(), 2);
+}
+
+#[test]
+fn top_level_sequences_need_a_key() {
+    assert!(source_kv::to_value(&vec![42]).is_err());
+    assert!(source_kv::to_value(&vec![42, 43]).is_err());
+}
+
+#[test]
+fn wide_integers_round_trip() {
+    #[derive(Debug, Deserialize, Serialize, PartialEq)]
+    struct Wide {
+        a: i128,
+        b: u128,
+    }
+    let w = Wide { a: -(1 << 100), b: u128::MAX };
+    assert_eq!(from_str::<Wide>(&to_string(&w).unwrap()).unwrap(), w);
+    assert_eq!(from_value::<Wide>(source_kv::to_value(&w).unwrap()).unwrap(), w);
+}
+
+#[test]
+fn syntax_error_column_counts_chars() {
+    match "// caf\u{e9}\nk\u{e9}y }".parse::<Value>() {
+        Err(source_kv::Error::Syntax { line, column, .. }) => assert_eq!((line, column), (2, 5)),
+        other => panic!("expected a syntax error, got {other:?}"),
+    }
+}

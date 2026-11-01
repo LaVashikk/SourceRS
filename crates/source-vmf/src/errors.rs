@@ -12,7 +12,7 @@ pub enum VmfError {
 
     /// A parsing error occurred during the KeyValues parsing phase.
     #[error("VMF parse error: {0}")]
-    Parse(#[from] source_kv::error::Error),
+    Parse(#[from] source_kv::Error),
 
     /// The VMF structure or content is invalid or unexpected.
     #[error("Invalid VMF format: {0}")]

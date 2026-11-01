@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use source_kv::{Value, Deserializer};
+use source_kv::Value;
 use crate::interner::{VmtKey, intern_key};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,21 +19,18 @@ impl Vmt {
 
     /// Parses VMT from a string using AST parser to handle root-level shader.
     pub fn from_str(input: &str) -> Result<Self, source_kv::Error> {
-        let mut de = Deserializer::from_str(input);
-        let root = de.parse_root()?;
+        let root: Value = input.parse()?;
 
-        if let Value::Obj(mut root_map) = root {
-            if let Some((shader, mut values)) = root_map.pop() {
-                if let Some(Value::Obj(props)) = values.pop() {
-                    let mut properties = IndexMap::with_capacity(props.len());
-                    for (k, v) in props {
-                        properties.insert(intern_key(&k), v);
-                    }
-                    return Ok(Self {
-                        shader: shader.to_lowercase(),
-                        properties
-                    });
+        if let Value::Obj(mut root_entries) = root {
+            if let Some((shader, Value::Obj(props))) = root_entries.pop() {
+                let mut properties: IndexMap<VmtKey, Vec<Value>> = IndexMap::with_capacity(props.len());
+                for (k, v) in props {
+                    properties.entry(intern_key(&k)).or_default().push(v);
                 }
+                return Ok(Self {
+                    shader: shader.to_lowercase(),
+                    properties
+                });
             }
         }
         Err(source_kv::Error::Message("Invalid VMT: Missing shader root or body".into()))
@@ -135,20 +132,16 @@ impl Vmt {
         I: IntoIterator<Item = (&'a str, &'a str)>,
     {
         let name_lower = name.to_lowercase();
-        let mut proxy_params = IndexMap::new();
-        for (k, v) in params {
-            proxy_params.insert(k.to_string(), vec![Value::Str(v.to_string())]);
-        }
-
-        let proxy_obj = Value::Obj(proxy_params);
+        let proxy_params = params
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), Value::Str(v.to_string())))
+            .collect();
 
         let proxies_vec = self.properties.entry(intern_key("proxies"))
-            .or_insert_with(|| vec![Value::Obj(IndexMap::new())]);
+            .or_insert_with(|| vec![Value::Obj(Vec::new())]);
 
-        if let Some(Value::Obj(map)) = proxies_vec.first_mut() {
-            map.entry(name_lower)
-               .or_insert_with(Vec::new)
-               .push(proxy_obj);
+        if let Some(Value::Obj(entries)) = proxies_vec.first_mut() {
+            entries.push((name_lower, Value::Obj(proxy_params)));
         }
 
         self
@@ -156,16 +149,13 @@ impl Vmt {
 
     /// Serializes the VMT back into a KeyValues string.
     pub fn to_string(&self) -> Result<String, source_kv::Error> {
-        let mut root_map = IndexMap::new();
-        let mut props = IndexMap::new();
+        let props = self
+            .properties
+            .iter()
+            .flat_map(|(k, values)| values.iter().map(|v| (k.to_string(), v.clone())))
+            .collect();
 
-        for (k, v) in &self.properties {
-            props.insert(k.to_string(), v.clone());
-        }
-
-        root_map.insert(self.shader.clone(), vec![Value::Obj(props)]);
-
-        source_kv::to_string(&Value::Obj(root_map))
+        source_kv::to_string(&Value::Obj(vec![(self.shader.clone(), Value::Obj(props))]))
     }
 
     /// Serializes the VMT and writes it to a file.

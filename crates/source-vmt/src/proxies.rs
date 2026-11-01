@@ -21,21 +21,20 @@ impl Vmt {
     pub fn proxies(&self) -> Vec<Proxy> {
         let mut result = Vec::new();
 
-        if let Some(Value::Obj(proxies_map)) = self.get_raw("proxies") {
-            for (proxy_name, instances) in proxies_map {
-                for instance in instances {
-                    if let Value::Obj(params_map) = instance {
-                        let mut params = IndexMap::new();
-                        for (k, v) in params_map {
-                            if let Some(Value::Str(s)) = v.first() {
-                                params.insert(k.to_lowercase(), s.clone());
-                            }
+        if let Some(Value::Obj(proxies)) = self.get_raw("proxies") {
+            for (proxy_name, instance) in proxies {
+                if let Value::Obj(entries) = instance {
+                    let mut params = IndexMap::new();
+                    for (k, v) in entries {
+                        // A repeated param keeps its first value, like the engine's FindKey
+                        if let Value::Str(s) = v {
+                            params.entry(k.to_lowercase()).or_insert_with(|| s.clone());
                         }
-                        result.push(Proxy {
-                            name: proxy_name.clone(),
-                            params
-                        });
                     }
+                    result.push(Proxy {
+                        name: proxy_name.clone(),
+                        params
+                    });
                 }
             }
         }
